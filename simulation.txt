@@ -1,0 +1,1 @@
+python sender_socket_sim.py --dataset-dir /home/abyan/Documents/orthomosaics/MAPPING_GOPRO/data_ketiga/ --delay 0.5

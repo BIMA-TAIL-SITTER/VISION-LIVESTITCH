@@ -1,0 +1,43 @@
+numpy>=1.20.0
+opencv-python>=4.5.0
+# torch>=1.9.0
+# tensorflow>=2.6.0
+scikit-image>=0.18.0
+rasterio>=1.2.0
+
+# For geospatial data processing, uncomment if needed
+# gdal>=3.2.0
+
+matplotlib>=3.4.0
+pillow>=8.2.0
+
+scikit-learn>=1.0.0    # For KMeans clustering in soil analysis
+pyyaml>=6.0            # For configuration management
+scipy>=1.7.0           # Scientific computing utilities
+tqdm>=4.62.0           # Progress bars for long-running operations
+
+# For YOLO implementation
+# ultralytics>=8.0.0     # If using YOLOv8
+
+# For visualization and reports
+seaborn>=0.11.0        # Enhanced statistical visualizations
+reportlab>=3.6.0       # PDF report generation
+
+pytest>=6.2.5          # For testing
+flake8>=4.0.0          # Code quality
+
+# For handling EXIF data in images
+exifread>=3.5.1       # For handling EXIF data in images
+
+scipy>=1.7.0           # Scientific computing utilities
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+websockets>=11.0.3
+
+pydantic>=2.0.0
+pytest==7.4.3
+httpx==0.25.2
+
+watchdog>=3.0.0
