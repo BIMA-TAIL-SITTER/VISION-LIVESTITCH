@@ -11,5 +11,4 @@ if [ -f "$VENV_PATH" ]; then
     echo "✅ Virtual environment activated."
 else
     echo "❌ Virtual environment not found at $VENV_PATH"
-    exit 1
 fi

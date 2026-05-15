@@ -288,8 +288,8 @@ async def run_stitching(session_id: str):
         
         # Create combiner and run stitching
         print("[STITCH] Starting mosaic generation...")
-        myCombiner = Combiner.Combiner(allImages, dataMatrix, str(session.output_folder))
-        result = myCombiner.createMosaic()
+        my_combiner = Combiner.Combiner(allImages, dataMatrix, str(session.output_folder))
+        result = my_combiner.create_mosaic()
         
         if result is not None:
             output_path = session.output_folder / session.config.output_name

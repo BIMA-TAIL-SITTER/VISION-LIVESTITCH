@@ -1,3 +1,4 @@
+# src/blending.py
 from email.mime import image
 
 import cv2 
@@ -194,7 +195,50 @@ class simpleBlender:
         # blend the images using the feathered mask
         blended = img1 * (1 - feathered_mask) + img2 * feathered_mask
         return blended.astype('uint8')
+    
+class ROIfeatherBlender:
+    @staticmethod
+    def _roi_feather_blend(warped_result, warped_img2):
+        gray1 = cv2.cvtColor(warped_result, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(warped_img2, cv2.COLOR_BGR2GRAY)
 
+        mask1 = cv2.threshold(gray1, 1, 255, cv2.THRESH_BINARY)[1]
+        mask2 = cv2.threshold(gray2, 1, 255, cv2.THRESH_BINARY)[1]
+
+        overlap_mask = cv2.bitwise_and(mask1, mask2)
+
+        only_img2 = cv2.bitwise_and(mask2, cv2.bitwise_not(mask1))
+        warped_result[only_img2 > 0] = warped_img2[only_img2 > 0]
+
+        coords = cv2.findNonZero(overlap_mask)
+        if coords is None:
+            return warped_result  # no overlap, return original image
+        x, y, w, h = cv2.boundingRect(coords)
+
+        # cut ROI
+        roi_img1 = warped_result[y:y+h, x:x+w]
+        roi_img2 = warped_img2[y:y+h, x:x+w]
+        roi_mask1 = mask1[y:y+h, x:x+w]
+        roi_mask2 = mask2[y:y+h, x:x+w]
+        roi_overlap = overlap_mask[y:y+h, x:x+w]
+
+        dist1 = cv2.distanceTransform(roi_mask1, cv2.DIST_L2, 5)
+        dist2 = cv2.distanceTransform(roi_mask2, cv2.DIST_L2, 5)
+
+        alpha = dist1 / (dist1 + dist2 + 1e-6)
+        alpha = cv2.merge([alpha, alpha, alpha]) # turn into 3 channel alpha
+
+        # alpha blending
+        img1_f = roi_img1.astype(np.float32)
+        img2_f = roi_img2.astype(np.float32)
+        blended_roi = img1_f * alpha + img2_f * (1 - alpha)
+        bool_overlap = roi_overlap > 0
+        roi_result = roi_img1.copy()
+        roi_result[bool_overlap] = blended_roi[bool_overlap].astype(np.uint8)
+        warped_result[y:y+h, x:x+w] = roi_result
+
+        return warped_result
+    
 class hybridBlender:
     @staticmethod
     def hybrid_blend(img1, img2, mask_binary, fast_mode=True, num_levels=2):

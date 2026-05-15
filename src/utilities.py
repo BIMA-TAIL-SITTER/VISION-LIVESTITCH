@@ -1,3 +1,4 @@
+# src/utilities.py
 import cv2
 import numpy as np
 from PIL import Image
@@ -5,7 +6,7 @@ import os
 import sys
 from PIL.ExifTags import TAGS, GPSTAGS
 import exifread
-import redundant_filter
+# import redundant_filter
 from geopy.distance import geodesic
 
 

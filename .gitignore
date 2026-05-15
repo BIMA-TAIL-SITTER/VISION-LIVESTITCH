@@ -1,0 +1,14 @@
+ortho_env/
+__pycache__/
+*.pyc
+dataset/
+
+GROUND_TEST/
+
+KIDN_ANJAY/
+
+output
+output_live
+OUTPUT_LIVE_2/
+
+sessions/session_1
