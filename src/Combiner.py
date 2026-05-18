@@ -218,15 +218,18 @@ class Combiner:
             print(f"⚠️  Warning: Could not compute transformation for image pair {index-1}-{index}. Skipping.")
             return
         
-        # chained / accumulated homography 
+        # --- chained / accumulated homography ---
         if A_rel is not None:
             H_rel_3x3 = np.vstack([A_rel, [0, 0, 1]])
         else:
             H_rel_3x3 = H_rel
 
         H_global_current = np.dot(self.H_global_prev, H_rel_3x3)
+
         # normalized scale
         H_global_current = H_global_current / H_global_current[2, 2]
+
+        # --- end of transformation estimation --- #
 
         # --- warping --- #
         t = time.time()
@@ -235,7 +238,7 @@ class Combiner:
         self.timing_stats['warping'] += time.time() - t
         print(f"⏱️  Warping: {time.time() - t:.3f}s")
 
-        # --- blending (LATER WOULD BE IMPLEMENTED WITH SEVERAL BLENDING TECHNIQUES) --- #
+        # --- blending --- #
         t = time.time()
         # self.result_image = self._legacy_blend(warped_result, warped_image2)
         self.result_image = ROIfeatherBlender._roi_feather_blend(warped_result, warped_image2)
@@ -276,6 +279,26 @@ class Combiner:
         self.timing_stats['total'] = time.time() - t0
         self._print_timing_summary()
         return self.result_image
+    
+    def _print_timing_summary(self):
+        s = self.timing_stats
+        lines = [
+            "\nTIMING SUMMARY",
+            "=" * 55,
+            f"Preprocessing:      {s['preprocessing']:>8.2f}s",
+            f"Feature Detection:  {s['feature_detection']:>8.2f}s",
+            f"Feature Matching:   {s['matching']:>8.2f}s",
+            f"Transformation:     {s['transformation']:>8.2f}s",
+            f"Warping & Blending: {s['warping']:>8.2f}s",
+            "-" * 55,
+            f"TOTAL:              {s['total']:>8.2f}s",
+        ]
+        print("\n".join(lines))
+
+        stats_path = os.path.join(self.output_dir, "timing_stats.txt")
+        with open(stats_path, 'w') as f:
+            f.write("\n".join(lines))
+        print(f"Stats saved: {stats_path}")
 
     # def create_mosaic(self, method='yuan'):
     #     t0 = time.time()
@@ -305,23 +328,3 @@ class Combiner:
     #     self.timing_stats['total'] = time.time() - t0
     #     self._print_timing_summary()
     #     return self.result_image
-    
-    def _print_timing_summary(self):
-        s = self.timing_stats
-        lines = [
-            "\nTIMING SUMMARY",
-            "=" * 55,
-            f"Preprocessing:      {s['preprocessing']:>8.2f}s",
-            f"Feature Detection:  {s['feature_detection']:>8.2f}s",
-            f"Feature Matching:   {s['matching']:>8.2f}s",
-            f"Transformation:     {s['transformation']:>8.2f}s",
-            f"Warping & Blending: {s['warping']:>8.2f}s",
-            "-" * 55,
-            f"TOTAL:              {s['total']:>8.2f}s",
-        ]
-        print("\n".join(lines))
-
-        stats_path = os.path.join(self.output_dir, "timing_stats.txt")
-        with open(stats_path, 'w') as f:
-            f.write("\n".join(lines))
-        print(f"Stats saved: {stats_path}")

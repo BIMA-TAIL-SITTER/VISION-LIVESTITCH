@@ -5,7 +5,6 @@ import cv2
 import numpy as np
 
 class PyramidBlender:
-
     @staticmethod
     def gaussian_pyramid(img, num_levels, name=""):
         # for debugging purpose
@@ -222,10 +221,11 @@ class ROIfeatherBlender:
         roi_mask2 = mask2[y:y+h, x:x+w]
         roi_overlap = overlap_mask[y:y+h, x:x+w]
 
-        dist1 = cv2.distanceTransform(roi_mask1, cv2.DIST_L2, 5)
-        dist2 = cv2.distanceTransform(roi_mask2, cv2.DIST_L2, 5)
+        dist1 = cv2.distanceTransform(roi_mask1, cv2.DIST_L2, 3)
+        dist2 = cv2.distanceTransform(roi_mask2, cv2.DIST_L2, 3)
 
         alpha = dist1 / (dist1 + dist2 + 1e-6)
+        alpha = alpha ** 3
         alpha = cv2.merge([alpha, alpha, alpha]) # turn into 3 channel alpha
 
         # alpha blending
