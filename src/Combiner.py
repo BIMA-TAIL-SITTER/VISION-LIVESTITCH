@@ -36,6 +36,7 @@ class Combiner:
         os.makedirs(self.match_output_dir, exist_ok=True)
 
         self.H_global_prev = np.eye(3, dtype=np.float32)
+        self.H_rel_prev = None
 
         self.image_list = self.__preprocess_images(imageList_)
         self.result_image = self.image_list[0]
@@ -124,6 +125,37 @@ class Combiner:
         xMax, yMax = np.int32(all_corners.max(axis=0).ravel() + 0.5)
         return xMin, yMin, xMax, yMax
     
+    def __predict_roi(self, h_rel_prev, image_shape):
+        ''' 
+        Predict the ROI in the new image based on the previous homography and the image shape.
+        This is a simple heuristic that assumes the camera motion is mostly forward and the scene is mostly planar.
+        '''
+        height, width = image_shape[:2]
+        corners = np.array([
+            [0, 0],
+            [0, height],
+            [width, height],
+            [width, 0]
+        ], dtype=np.float32).reshape(-1, 1, 2)
+
+        _, H_inv = cv2.invert(h_rel_prev)
+        warped_corners = cv2.perspectiveTransform(corners, H_inv)
+        x_min, y_min = np.int32(warped_corners.min(axis=0).ravel() - 0.5)
+        x_max, y_max = np.int32(warped_corners.max(axis=0).ravel() + 0.5)
+        
+        # margin of tolerance
+        pad_x = int(0.15 * width)
+        pad_y = int(0.15* height)
+        x_start = max(x_min - pad_x, 0)
+        y_start = max(y_min - pad_y, 0)
+        x_end = min(x_max + pad_x, width)
+        y_end = min(y_max + pad_y, height)
+
+        # FALLBACK 
+        if (x_end - x_start < 100) or (y_end - y_start < 100):
+            x_start, y_start, x_end, y_end = 0, 0, width, height
+        return x_start, y_start, x_end, y_end
+    
     def _warp_images(self, result_image, image2, A, H, xMin, yMin, xMax, yMax):
         ''' 
         warp both images onto a common canvas and return them
@@ -165,20 +197,6 @@ class Combiner:
     #  PUBLIC FUNCTIONs                                                  #
     # ------------------------------------------------------------------ #
 
-    def create_mosaic(self):
-        '''
-        stitch all image sequentially and return the final mosaic
-        '''
-        t0 = time.time()
-        for i in range(1,len(self.imageList)):
-            print(f"\n{'='*60}")
-            print(f"stitching image {i} of {len(self.imageList)-1}")
-            print(f"{'='*60}")
-            self.combine(i)
-        self.timing_stats['total'] = time.time() - t0
-        self.print_timing_summary()
-        return self.resultImage
-
     def combine(self, index):
         """Stitch image[index] into the running mosaic."""
 
@@ -187,10 +205,41 @@ class Combiner:
         image1 = self.image_list[index-1].copy()
         image2 = self.image_list[index].copy()
 
+        # --- ADAPTIVE ROI PREDICTION (towards initial images to incoming images)--- #
+        if self.H_rel_prev is not None:
+            x_start, y_start, x_end, y_end = self.__predict_roi(self.H_rel_prev, image2.shape)
+            image2_roi = image2[y_start:y_end, x_start:x_end]
+            is_cropped = True
+            print(f"Predicted ROI for image {index}: ({x_start}, {y_start}) to ({x_end}, {y_end})")
+        else:
+            image2_roi = image2
+            is_cropped = False
+            print(f"No valid homography from previous step. Using full image for image {index}.")
+
         # --- feature detection --- #
         t = time.time()
         kp1, descriptors1 = self.__detect_features(image1)
-        kp2, descriptors2 = self.__detect_features(image2)
+        kp2_roi, descriptors2 = self.__detect_features(image2_roi)
+
+        # revert keypoint coordinates to original full image space if cropped
+        kp2 = []
+        if is_cropped:
+            # for kp in kp2_roi:
+            #     kp.pt = (kp.pt[0] + x_start, kp.pt[1] + y_start)
+            #     kp2.append(kp)
+            for kp in kp2_roi:
+                new_kp = cv2.KeyPoint(
+                    x=kp.pt[0] + x_start, 
+                    y=kp.pt[1] + y_start, 
+                    size=kp.size, 
+                    angle=kp.angle, 
+                    response=kp.response, 
+                    octave=kp.octave, 
+                    class_id=kp.class_id
+                )
+                kp2.append(new_kp)
+        else:
+            kp2 = kp2_roi
         self.timing_stats['feature_detection'] += time.time() - t
         print(f"⏱️  Feature Detection: {time.time() - t:.3f}s ({len(kp1)} + {len(kp2)} keypoints)")
 
@@ -223,6 +272,8 @@ class Combiner:
             H_rel_3x3 = np.vstack([A_rel, [0, 0, 1]])
         else:
             H_rel_3x3 = H_rel
+
+        self.H_rel_prev = H_rel_3x3
 
         H_global_current = np.dot(self.H_global_prev, H_rel_3x3)
 
@@ -328,3 +379,17 @@ class Combiner:
     #     self.timing_stats['total'] = time.time() - t0
     #     self._print_timing_summary()
     #     return self.result_image
+
+    # def create_mosaic(self):
+    #     '''
+    #     stitch all image sequentially and return the final mosaic
+    #     '''
+    #     t0 = time.time()
+    #     for i in range(1,len(self.imageList)):
+    #         print(f"\n{'='*60}")
+    #         print(f"stitching image {i} of {len(self.imageList)-1}")
+    #         print(f"{'='*60}")
+    #         self.combine(i)
+    #     self.timing_stats['total'] = time.time() - t0
+    #     self.print_timing_summary()
+    #     return self.resultImage

@@ -9,6 +9,11 @@ from pathlib import Path
 HOST = "0.0.0.0"  # listen di semua interface
 PORT = 5001       # bebas, asal sama dengan sender
 
+# for multi UAV support, we can enable more tcp ports and run multiple instances of this server, each with a different session_id and port.
+PORT_ONE = 5001
+PORT_TWO = 5002
+PORT_THREE = 5003
+
 def recvall(conn, n):
     """Baca tepat n byte dari socket, atau return None kalau koneksi putus."""
     data = b""
