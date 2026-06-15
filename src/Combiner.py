@@ -28,11 +28,14 @@ class Combiner:
             'matching': 0,
             'transformation': 0,
             'warping': 0,
+            'blending': 0,
             'total': 0
         }
         
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.match_output_dir, exist_ok=True)
+
+        self.H_global_prev = np.eye(3, dtype=np.float32)
 
         self.image_list = self.__preprocess_images(imageList_)
         self.result_image = self.image_list[0]
@@ -114,7 +117,7 @@ class Combiner:
             warped_corners2 = pts @ A.T  # (4, 2)
         else:
             # perspective
-            warped2 = cv2.perspectiveTransform(corners2.reshape(-1, 1, 2), H).reshape(-1, 2)
+            warped_corners2 = cv2.perspectiveTransform(corners2.reshape(-1, 1, 2), H).reshape(-1, 2)
         
         all_corners = np.vstack([corners1, warped_corners2])
         xMin, yMin = np.int32(all_corners.min(axis=0).ravel() - 0.5)
@@ -158,8 +161,6 @@ class Combiner:
 
         return warped_result + warped_img2
     
-    
-    
     # ------------------------------------------------------------------ #
     #  PUBLIC FUNCTIONs                                                  #
     # ------------------------------------------------------------------ #
@@ -181,8 +182,8 @@ class Combiner:
     def combine(self, index):
         """Stitch image[index] into the running mosaic."""
 
-        #Attempt to combine one pair of images at each step. Assume the order in which the images are given is the best order.
-        #This intorduces drift!
+        # Attempt to combine one pair of images at each step. Assume the order in which the images are given is the best order.
+        # This intorduces drift!
         image1 = self.image_list[index-1].copy()
         image2 = self.image_list[index].copy()
 
@@ -209,32 +210,53 @@ class Combiner:
         
         # --- transformation estimation --- #
         t = time.time()
-        A, H,_, _ = self.__estimate_transform(kp1, kp2, matches)
+        A_rel, H_rel,_, _ = self.__estimate_transform(kp1, kp2, matches)
         self.timing_stats['transformation'] += time.time() - t
         print(f"⏱️  Transformation Estimation: {time.time() - t:.3f}s")
 
-        if A is None and H is None:
+        if A_rel is None and H_rel is None:
             print(f"⚠️  Warning: Could not compute transformation for image pair {index-1}-{index}. Skipping.")
             return
+        
+        # --- chained / accumulated homography ---
+        if A_rel is not None:
+            H_rel_3x3 = np.vstack([A_rel, [0, 0, 1]])
+        else:
+            H_rel_3x3 = H_rel
+
+        H_global_current = np.dot(self.H_global_prev, H_rel_3x3)
+
+        # normalized scale
+        H_global_current = H_global_current / H_global_current[2, 2]
+
+        # --- end of transformation estimation --- #
 
         # --- warping --- #
         t = time.time()
-        xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(image1.shape, image2.shape, A, H)
-        warped_result, warped_image2 = self._warp_images(self.result_image, image2, A, H, xMin, yMin, xMax, yMax)
+        xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(self.result_image.shape, image2.shape, None, H_global_current)
+        warped_result, warped_image2 = self._warp_images(self.result_image, image2, None, H_global_current, xMin, yMin, xMax, yMax)
         self.timing_stats['warping'] += time.time() - t
         print(f"⏱️  Warping: {time.time() - t:.3f}s")
 
-        # --- blending (LATER WOULD BE IMPLEMENTED WITH SEVERAL BLENDING TECHNIQUES) --- #
+        # --- blending --- #
         t = time.time()
         # self.result_image = self._legacy_blend(warped_result, warped_image2)
         self.result_image = ROIfeatherBlender._roi_feather_blend(warped_result, warped_image2)
-        self.image_list[index] = warped_image2.copy()
-        self.timing_stats['warping'] += time.time() - t
-        print(f"⏱️  Warping: {time.time() - t:.3f}s")
+        # self.image_list[index] = warped_image2.copy()
+        self.timing_stats['blending'] += time.time() - t
+        print(f"⏱️  Blending: {time.time() - t:.3f}s")
 
         inter_out_path = os.path.join(self.output_dir, f"intermediateResult_{index}.png")
         cv2.imwrite(inter_out_path, self.result_image)
         print(f"Intermediate result saved: {inter_out_path}")
+
+        # update global homography for next iteration
+        translation = np.float32([
+            [1, 0, -xMin],
+            [0, 1, -yMin],
+            [0, 0, 1]
+        ])
+        self.H_global_prev = np.dot(translation, H_global_current)
 
         # --- visualize matches --- #
         match_drawing = cv2.drawMatches(
@@ -257,6 +279,26 @@ class Combiner:
         self.timing_stats['total'] = time.time() - t0
         self._print_timing_summary()
         return self.result_image
+    
+    def _print_timing_summary(self):
+        s = self.timing_stats
+        lines = [
+            "\nTIMING SUMMARY",
+            "=" * 55,
+            f"Preprocessing:      {s['preprocessing']:>8.2f}s",
+            f"Feature Detection:  {s['feature_detection']:>8.2f}s",
+            f"Feature Matching:   {s['matching']:>8.2f}s",
+            f"Transformation:     {s['transformation']:>8.2f}s",
+            f"Warping & Blending: {s['warping']:>8.2f}s",
+            "-" * 55,
+            f"TOTAL:              {s['total']:>8.2f}s",
+        ]
+        print("\n".join(lines))
+
+        stats_path = os.path.join(self.output_dir, "timing_stats.txt")
+        with open(stats_path, 'w') as f:
+            f.write("\n".join(lines))
+        print(f"Stats saved: {stats_path}")
 
     # def create_mosaic(self, method='yuan'):
     #     t0 = time.time()
@@ -286,23 +328,3 @@ class Combiner:
     #     self.timing_stats['total'] = time.time() - t0
     #     self._print_timing_summary()
     #     return self.result_image
-    
-    def _print_timing_summary(self):
-        s = self.timing_stats
-        lines = [
-            "\nTIMING SUMMARY",
-            "=" * 55,
-            f"Preprocessing:      {s['preprocessing']:>8.2f}s",
-            f"Feature Detection:  {s['feature_detection']:>8.2f}s",
-            f"Feature Matching:   {s['matching']:>8.2f}s",
-            f"Transformation:     {s['transformation']:>8.2f}s",
-            f"Warping & Blending: {s['warping']:>8.2f}s",
-            "-" * 55,
-            f"TOTAL:              {s['total']:>8.2f}s",
-        ]
-        print("\n".join(lines))
-
-        stats_path = os.path.join(self.output_dir, "timing_stats.txt")
-        with open(stats_path, 'w') as f:
-            f.write("\n".join(lines))
-        print(f"Stats saved: {stats_path}")
