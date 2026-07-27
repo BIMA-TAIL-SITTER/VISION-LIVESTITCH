@@ -240,8 +240,9 @@ class Combiner:
                 kp2.append(new_kp)
         else:
             kp2 = kp2_roi
-        self.timing_stats['feature_detection'] += time.time() - t
-        print(f"⏱️  Feature Detection: {time.time() - t:.3f}s ({len(kp1)} + {len(kp2)} keypoints)")
+        elapsed_fd = time.time() - t
+        self.timing_stats['feature_detection'] += elapsed_fd
+        print(f"⏱️  Feature Detection: {elapsed_fd:.3f}s ({len(kp1)} + {len(kp2)} keypoints)")
 
         # check if descriptors were found
         if descriptors1 is None or descriptors2 is None:
@@ -251,8 +252,9 @@ class Combiner:
         # --- feature matching --- #
         t = time.time()
         matches = self.__match_features(descriptors1, descriptors2)
-        self.timing_stats['matching'] += time.time() - t
-        print(f"⏱️  Feature Matching: {time.time() - t:.3f}s ({len(matches)} good matches)")
+        elapsed_match = time.time() - t
+        self.timing_stats['matching'] += elapsed_match
+        print(f"⏱️  Feature Matching: {elapsed_match:.3f}s ({len(matches)} good matches)")
         if len(matches) < 4:
             print(f"⚠️  Warning: Only {len(matches)} matches found for image pair {index-1}-{index}. Need at least 4. Skipping.")
             return self.result_image
@@ -260,8 +262,9 @@ class Combiner:
         # --- transformation estimation --- #
         t = time.time()
         A_rel, H_rel,_, _ = self.__estimate_transform(kp1, kp2, matches)
-        self.timing_stats['transformation'] += time.time() - t
-        print(f"⏱️  Transformation Estimation: {time.time() - t:.3f}s")
+        elapsed_tf = time.time() - t
+        self.timing_stats['transformation'] += elapsed_tf
+        print(f"⏱️  Transformation Estimation: {elapsed_tf:.3f}s")
 
         if A_rel is None and H_rel is None:
             print(f"⚠️  Warning: Could not compute transformation for image pair {index-1}-{index}. Skipping.")
@@ -286,16 +289,18 @@ class Combiner:
         t = time.time()
         xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(self.result_image.shape, image2.shape, None, H_global_current)
         warped_result, warped_image2 = self._warp_images(self.result_image, image2, None, H_global_current, xMin, yMin, xMax, yMax)
-        self.timing_stats['warping'] += time.time() - t
-        print(f"⏱️  Warping: {time.time() - t:.3f}s")
+        elapsed_warp = time.time() - t
+        self.timing_stats['warping'] += elapsed_warp
+        print(f"⏱️  Warping: {elapsed_warp:.3f}s")
 
         # --- blending --- #
         t = time.time()
         # self.result_image = self._legacy_blend(warped_result, warped_image2)
         self.result_image = ROIfeatherBlender._roi_feather_blend(warped_result, warped_image2)
         # self.image_list[index] = warped_image2.copy()
-        self.timing_stats['blending'] += time.time() - t
-        print(f"⏱️  Blending: {time.time() - t:.3f}s")
+        elapsed_blend = time.time() - t
+        self.timing_stats['blending'] += elapsed_blend
+        print(f"⏱️  Blending: {elapsed_blend:.3f}s")
 
         inter_out_path = os.path.join(self.output_dir, f"intermediateResult_{index}.png")
         cv2.imwrite(inter_out_path, self.result_image)
@@ -333,6 +338,8 @@ class Combiner:
     
     def _print_timing_summary(self):
         s = self.timing_stats
+        tracked_time = s['preprocessing'] + s['feature_detection'] + s['matching'] + s['transformation'] + s['warping'] + s['blending']
+        untracked_time = s['total'] - tracked_time
         lines = [
             "\nTIMING SUMMARY",
             "=" * 55,
@@ -340,7 +347,9 @@ class Combiner:
             f"Feature Detection:  {s['feature_detection']:>8.2f}s",
             f"Feature Matching:   {s['matching']:>8.2f}s",
             f"Transformation:     {s['transformation']:>8.2f}s",
-            f"Warping & Blending: {s['warping']:>8.2f}s",
+            f"Warping:            {s['warping']:>8.2f}s",
+            f"Blending:           {s['blending']:>8.2f}s",
+            f"I/O & Misc (Save):  {untracked_time:>8.2f}s", 
             "-" * 55,
             f"TOTAL:              {s['total']:>8.2f}s",
         ]
@@ -350,46 +359,3 @@ class Combiner:
         with open(stats_path, 'w') as f:
             f.write("\n".join(lines))
         print(f"Stats saved: {stats_path}")
-
-    # def create_mosaic(self, method='yuan'):
-    #     t0 = time.time()
-
-    #     if method == 'he':
-    #         # ── Paper 1: He 2024 ──────────────────────────────────────
-    #         selected = redundancy_removal_he2024(self.image_list, interval=3)
-    #         pairs = list(zip(selected[:-1], selected[1:]))
-
-    #     elif method == 'yuan':
-    #         # ── Paper 2: Yuan 2024 ────────────────────────────────────
-    #         selected = keyframe_selection_yuan2024(
-    #             self.image_list,
-    #             overlap_threshold=0.80,
-    #             remap_threshold=4.0
-    #         )
-    #         pairs = list(zip(selected[:-1], selected[1:]))
-
-    #     else:
-    #         # Default: semua frame sequential
-    #         pairs = [(i-1, i) for i in range(1, len(self.image_list))]
-
-    #     for idx_prev, idx_curr in pairs:
-    #         print(f"\n{'='*55}\nStitching frame {idx_prev} → {idx_curr}\n{'='*55}")
-    #         self.combine_pair(idx_prev, idx_curr)
-
-    #     self.timing_stats['total'] = time.time() - t0
-    #     self._print_timing_summary()
-    #     return self.result_image
-
-    # def create_mosaic(self):
-    #     '''
-    #     stitch all image sequentially and return the final mosaic
-    #     '''
-    #     t0 = time.time()
-    #     for i in range(1,len(self.imageList)):
-    #         print(f"\n{'='*60}")
-    #         print(f"stitching image {i} of {len(self.imageList)-1}")
-    #         print(f"{'='*60}")
-    #         self.combine(i)
-    #     self.timing_stats['total'] = time.time() - t0
-    #     self.print_timing_summary()
-    #     return self.resultImage
