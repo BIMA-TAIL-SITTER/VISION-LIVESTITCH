@@ -1,0 +1,20 @@
+# =============================================================================
+# PROGRAM-NOVA | requirements_raspi.txt
+# Dependencies untuk Raspberry Pi 5 (di dalam UAV)
+# Install: pip install -r requirements_raspi.txt
+# =============================================================================
+
+# Computer Vision
+opencv-python-headless>=4.8.0   # Headless (no GUI) untuk Raspi
+
+# MAVLink (komunikasi dengan Flight Controller)
+pymavlink>=2.4.41
+
+# Numerik
+numpy>=1.24.0
+
+# Networking & Utilities
+pyserial>=3.5                   # Serial port (backup jika MAVLink butuh)
+
+# EXIF (opsional, untuk embed GPS ke gambar)
+piexif>=1.1.3
