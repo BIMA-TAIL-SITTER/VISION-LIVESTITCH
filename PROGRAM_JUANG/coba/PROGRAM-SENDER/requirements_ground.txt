@@ -1,0 +1,29 @@
+# =============================================================================
+# PROGRAM-SENDER | requirements_ground.txt
+# Dependencies untuk Ground Station (Laptop/PC)
+# Install: pip install -r requirements_ground.txt
+# =============================================================================
+
+# Computer Vision
+opencv-python>=4.8.0
+
+# Numerik
+numpy>=1.24.0
+
+# GPS & Geospatial
+geopy>=2.3.0                    # Haversine / geodesic distance
+
+# EXIF reader
+exifread>=3.0.0
+piexif>=1.1.3
+
+# Image processing
+Pillow>=10.0.0
+
+# MAVLink (opsional, untuk menerima telemetry dari UAV)
+pymavlink>=2.4.41
+
+# Web API (opsional, untuk service.py)
+fastapi>=0.104.0
+uvicorn>=0.24.0
+watchdog>=3.0.0
