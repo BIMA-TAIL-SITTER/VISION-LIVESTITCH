@@ -46,6 +46,8 @@ Sistem live stitching gambar udara untuk UAV **Fixed Wing** menggunakan:
 PROGRAM-SENDER/
 ├── sender.py               ← Di-upload ke Raspberry Pi
 ├── imu_monitor.py          ← Di-upload ke Raspberry Pi (standalone)
+├── fc_router.py            ← Opsional: MAVLink UDP fan-out (1 FC ke banyak listener)
+├── imu_simulator.py        ← FC palsu via MAVLink UDP (testing tanpa hardware)
 ├── receiver.py             ← Dijalankan di Ground Station
 ├── stitcher.py             ← Dijalankan di Ground Station
 ├── od_simulator.py         ← Simulasi OD (testing)
@@ -382,14 +384,19 @@ sessions/
 ### Masalah:
 Fixed wing **tidak bisa hover** – saat berbelok (*bank turn*), kamera miring dan gambar tidak ortogonal, sehingga hasil stitching jelek dan tidak akurat.
 
-### Solusi yang Diimplementasikan (IMU Gate):
+### Solusi yang Diimplementasikan (IMU Gate — 2 lapis):
+
+**Lapis 1 — Onboard (`sender.py`, saat capture di UAV):**
 
 | Kondisi | Roll | Pitch | Aksi |
 |---------|------|-------|------|
-| ✅ Lurus (straight & level) | < 15° | < 20° | **Kirim gambar** |
-| ⚠️ Berbelok (bank turn) | > 15° | any | **Tahan gambar** |
-| ⚠️ Menanjak/menukik | any | > 20° | **Tahan gambar** |
-| 🔄 Recover | < 15° AND < 20° selama 5 frame | **Resume** |
+| ✅ Lurus (straight & level) | < 45° | < 45° | **Kirim gambar** |
+| ⚠️ Berbelok (bank turn) | > 45° | any | **Tahan gambar** |
+| ⚠️ Menanjak/menukik | any | > 45° | **Tahan gambar** |
+| 🔄 Recover | < 45° AND < 45° selama 5 frame | **Resume** |
+
+**Lapis 2 — Ground (`stitcher.py`, sebelum stitching):**
+Gambar yang lolos gate onboard tetap disaring ULANG di `stitcher.py` berdasarkan attitude (roll/pitch) yang tersemat di EXIF-nya (`AttitudeThresholdFilter`, default **30°**, diatur via `STITCH_ATTITUDE_THRESHOLD_DEG` di `config.py` atau flag `--attitude-threshold`). Ini gate independen — standar kualitas mosaic bisa diperketat/diperlonggar tanpa redeploy `sender.py` ke UAV.
 
 ### Saran Tambahan untuk Operasi:
 
@@ -405,22 +412,83 @@ Di tikungan, IMU gate otomatis menahan foto.
 
 **2. Parameter threshold yang disarankan:**
 ```python
-# Untuk area datar (pemetaan)
-ROLL_THRESHOLD_DEG  = 12.0   # Lebih ketat
-PITCH_THRESHOLD_DEG = 15.0
+# Onboard (sender.py) — untuk area datar (pemetaan)
+ROLL_THRESHOLD_DEG  = 30.0   # Lebih ketat dari default 45°
+PITCH_THRESHOLD_DEG = 30.0
 
-# Untuk kondisi angin (lebih toleran)
-ROLL_THRESHOLD_DEG  = 20.0
-PITCH_THRESHOLD_DEG = 25.0
+# Onboard — untuk kondisi angin (lebih toleran)
+ROLL_THRESHOLD_DEG  = 45.0
+PITCH_THRESHOLD_DEG = 45.0
+
+# Ground (stitcher.py) — biasanya disetel sedikit LEBIH KETAT dari onboard,
+# karena ini adalah gate kualitas terakhir sebelum gambar benar-benar dipakai
+STITCH_ATTITUDE_THRESHOLD_DEG = 30.0
 ```
 
-**3. Gunakan GPS Threshold stitcher:**
-Sudah diimplementasikan di `stitcher.py` – gambar terlalu dekat (< 3 meter) otomatis dilewati agar stitching lebih cepat.
+**3. Gunakan GPS + Attitude Threshold stitcher:**
+Sudah diimplementasikan di `stitcher.py` — gambar terlalu dekat (< 3 meter) otomatis dilewati agar stitching lebih cepat (`GPSThresholdFilter`), DAN gambar dengan attitude (roll/pitch) di atas ambang batas otomatis ditolak dari batch stitching (`AttitudeThresholdFilter`) meski sudah lolos gate onboard.
 
 **4. Altitude yang disarankan:**
 - **50-100 meter**: Coverage baik, resolusi tinggi
 - Terlalu tinggi (> 150m): Detail berkurang
 - Terlalu rendah (< 30m): Overlap terlalu sedikit
+
+---
+
+## GPS + Attitude Metadata pada Citra (EXIF)
+
+Setiap gambar yang lolos IMU gate di `sender.py` disisipi metadata langsung ke file JPEG-nya (fungsi `embed_flight_metadata_exif()`), jadi **tidak perlu dikirim terpisah** — `stitcher.py` di ground tinggal baca ulang dari file-nya:
+
+| Data | Lokasi EXIF | Format |
+|---|---|---|
+| Latitude / Longitude | `GPS GPSLatitude` / `GPS GPSLongitude` (GPS IFD standar) | DMS rational |
+| Altitude | `GPS GPSAltitude` | Rational (meter) |
+| Yaw / heading | `GPS GPSImgDirection` | Rational (derajat, 0-360, true north) |
+| Roll & Pitch | `Image ImageDescription` (0th IFD) | JSON compact: `{"roll": 12.3, "pitch": -4.5, "yaw": 271.8}` |
+
+EXIF tidak punya field baku untuk roll/pitch pesawat, jadi keduanya dititip di `ImageDescription` sebagai JSON — `stitcher.py` (`_extract_flight_metadata()`) sudah tau cara parse ini balik.
+
+**Cek manual metadata di gambar hasil capture:**
+```bash
+python3 -c "
+import exifread, json
+with open('sessions/<session>/images/<file>.jpg', 'rb') as f:
+    tags = exifread.process_file(f, details=False)
+print('GPS:', tags.get('GPS GPSLatitude'), tags.get('GPS GPSLongitude'), tags.get('GPS GPSAltitude'))
+print('Heading:', tags.get('GPS GPSImgDirection'))
+print('Attitude:', json.loads(str(tags.get('Image ImageDescription'))))
+"
+```
+
+---
+
+## MAVLink UDP Fan-out (`fc_router.py`) — FC ke Banyak Program Sekaligus
+
+**Masalah yang diselesaikan:** serial/COM port cuma bisa dibuka oleh SATU proses dalam satu waktu. Kalau mau jalanin `sender.py` dan `imu_monitor.py` (atau Mission Planner) BERSAMAAN ke FC fisik yang sama, program kedua akan gagal dengan `PermissionError: Access is denied`.
+
+**Solusinya:** `fc_router.py` — baca serial FC SEKALI, forward semua data mentahnya ke beberapa port UDP sekaligus. Konsumen (`sender.py`, `imu_monitor.py`, dst) tinggal *listen* (`udpin`) di portnya masing-masing — pola koneksinya sama seperti `imu_simulator.py` (router = `udpout` aktif push, konsumen = `udpin` listen).
+
+```bash
+# Terminal 1 — router baca FC fisik, forward ke 2 listener sekaligus
+python3 fc_router.py --port COM4 --baud 460800 \
+    --out udp:127.0.0.1:14552 --out udp:127.0.0.1:14553
+
+# Terminal 2 — sender.py listen di port pertama
+python3 sender.py --fc-port udpin:0.0.0.0:14552 --host 192.168.1.100
+
+# Terminal 3 — imu_monitor.py listen di port kedua, BERSAMAAN dengan sender.py
+python3 imu_monitor.py --port udpin:0.0.0.0:14553 --no-send
+```
+
+Bisa juga forward sekalian ke Mission Planner/QGroundControl (biasanya listen di port `14550`):
+```bash
+python3 fc_router.py --port /dev/ttyAMA0 --baud 57600 \
+    --out udp:127.0.0.1:14552 --out udp:127.0.0.1:14553 --out udp:192.168.1.50:14550
+```
+
+Port default (`14552`/`14553`) diatur di `config.py` (`FC_ROUTER_PORT_A`/`FC_ROUTER_PORT_B`), tinggal dipakai sebagai referensi biar konsisten di semua device — nggak wajib, port UDP mana pun bisa dipakai selama `--out` di router dan `--fc-port`/`--port` di konsumen match.
+
+> **Kapan pakai ini vs koneksi serial langsung?** Kalau cuma jalanin SATU program (misal cuma `sender.py` doang) koneksi serial langsung (`--fc-port COM4`) masih lebih simpel, nggak perlu proses tambahan. `fc_router.py` baru kepake kalau butuh BEBERAPA program baca FC yang sama secara bersamaan.
 
 ---
 

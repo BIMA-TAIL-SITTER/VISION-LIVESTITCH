@@ -82,7 +82,7 @@ class SineAttitude:
 class ScenarioAttitude:
     """
     Simulasi pola terbang fixed-wing survey:
-      LURUS (roll~0) -> BELOK (roll naik ke max_roll & turun lagi) -> LURUS -> ulang
+    LURUS (roll~0) -> BELOK (roll naik ke max_roll & turun lagi) -> LURUS -> ulang
     Cocok buat ngetes IMU gate: capture harus jalan pas LURUS, dan tertahan pas BELOK.
     """
 

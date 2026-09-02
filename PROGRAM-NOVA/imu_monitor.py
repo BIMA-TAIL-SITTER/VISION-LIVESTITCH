@@ -27,7 +27,7 @@ PX4 setup:
 Cara Jalankan (standalone):
   python3 imu_monitor.py
   python3 imu_monitor.py --port /dev/ttyUSB0 --baud 115200
-  python3 imu_monitor.py --port udp:14550    # MAVProxy UDP
+  python3 imu_monitor.py  
 =============================================================================
 """
 
@@ -236,7 +236,7 @@ class TelemetrySender(threading.Thread):
     """
 
     def __init__(self, ground_host: str, ground_port: int,
-                 state: AttitudeState, interval: float = 1.0):
+                state: AttitudeState, interval: float = 1.0):
         super().__init__(daemon=True)
         self.ground_host = ground_host
         self.ground_port = ground_port

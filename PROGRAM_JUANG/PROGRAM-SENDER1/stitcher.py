@@ -127,6 +127,45 @@ class GPSThresholdFilter:
 
 
 # =============================================================================
+# Attitude Threshold Filter
+# =============================================================================
+class AttitudeThresholdFilter:
+    """
+    Filter gambar berdasarkan attitude (roll/pitch) yang tersemat di EXIF-nya.
+    Ini adalah GATE KEDUA di sisi ground/stitching — independen dari gate
+    onboard di sender.py. Meski sender.py sudah menyaring di ambang batasnya
+    sendiri (default 45°) saat capture, gambar yang lolos tetap disaring
+    ULANG di sini dengan ambang batas yang bisa lebih ketat (default 30°)
+    sebelum betul-betul ikut proses stitching — standar kualitas mosaic bisa
+    diperketat/diperlonggar tanpa perlu redeploy sender.py ke UAV.
+    """
+
+    def __init__(self, threshold_deg: float = config.STITCH_ATTITUDE_THRESHOLD_DEG):
+        self.threshold_deg = threshold_deg
+        self._accepted = 0
+        self._rejected = 0
+
+    def should_accept(self, roll_deg: float, pitch_deg: float) -> Tuple[bool, float]:
+        """
+        Return (should_accept, sudut_terbesar). Menolak jika |roll| atau |pitch|
+        melampaui threshold.
+        """
+        worst = max(abs(roll_deg), abs(pitch_deg))
+        if worst < self.threshold_deg:
+            self._accepted += 1
+            return True, worst
+        else:
+            self._rejected += 1
+            return False, worst
+
+    @property
+    def stats(self) -> str:
+        total = self._accepted + self._rejected
+        return (f"Accepted: {self._accepted}/{total} gambar "
+                f"(attitude threshold={self.threshold_deg}°)")
+
+
+# =============================================================================
 # Detection Loader
 # =============================================================================
 class DetectionLoader:
@@ -292,14 +331,26 @@ class StitchingEngine:
 
             data_matrix = np.zeros((len(gps_list), 6), dtype=np.float64)
             for i, gps in enumerate(gps_list):
-                lat = gps.get("latitude", 0.0)
-                lon = gps.get("longitude", 0.0)
-                alt = gps.get("altitude", 0.0)
+                lat  = gps.get("latitude", 0.0)
+                lon  = gps.get("longitude", 0.0)
+                alt  = gps.get("altitude", 0.0)
+                # yaw/pitch/roll sekarang terisi dari metadata EXIF asli (sender.py),
+                # sebelumnya selalu 0 (belum ada sumber datanya).
+                # CATATAN: dikonversi ke radian karena itu konvensi umum untuk data
+                # orientasi kamera/pesawat — verifikasi ulang ke source Combiner
+                # apakah dia memang mengharapkan radian atau derajat di kolom ini.
+                yaw   = math.radians(gps.get("yaw", 0.0))
+                pitch = math.radians(gps.get("pitch", 0.0))
+                roll  = math.radians(gps.get("roll", 0.0))
+
                 x = (lon - origin_lon) * 111320 * math.cos(math.radians(origin_lat))
                 y = (lat - origin_lat) * 110540
                 data_matrix[i, 0] = x
                 data_matrix[i, 1] = y
                 data_matrix[i, 2] = alt
+                data_matrix[i, 3] = yaw
+                data_matrix[i, 4] = pitch
+                data_matrix[i, 5] = roll
 
             combiner = Combiner.Combiner(images, data_matrix, output="stitch_output")
             result   = combiner.create_mosaic()
@@ -339,22 +390,24 @@ class SessionMonitor:
     """
 
     def __init__(self, session_id: str, base_dir: str,
-                 batch_size: int, gps_threshold_m: float):
+                 batch_size: int, gps_threshold_m: float,
+                 attitude_threshold_deg: float = config.STITCH_ATTITUDE_THRESHOLD_DEG):
         self.session_id     = session_id
         self.session_root   = Path(base_dir) / session_id
         self.img_dir        = self.session_root / "images"
         self.output_dir     = self.session_root / "output"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.batch_size     = batch_size
-        self.gps_filter     = GPSThresholdFilter(gps_threshold_m)
-        self.det_loader     = DetectionLoader(self.session_root / "detections.jsonl")
-        self.overlay        = MosaicOverlay()
-        self.engine         = StitchingEngine()
+        self.batch_size      = batch_size
+        self.gps_filter      = GPSThresholdFilter(gps_threshold_m)
+        self.attitude_filter = AttitudeThresholdFilter(attitude_threshold_deg)
+        self.det_loader      = DetectionLoader(self.session_root / "detections.jsonl")
+        self.overlay         = MosaicOverlay()
+        self.engine          = StitchingEngine()
 
         self._processed_imgs: set = set()
-        self._accepted_imgs:  List[Path] = []  # Gambar yang lolos GPS filter
-        self._accepted_gps:   List[dict] = []
+        self._accepted_imgs:  List[Path] = []  # Gambar yang lolos GPS + attitude filter
+        self._accepted_gps:   List[dict] = []  # Metadata lengkap (GPS + attitude) per gambar
 
         self._is_stitching  = False
         self._mosaic_count  = 0
@@ -375,22 +428,36 @@ class SessionMonitor:
 
     def process_new_images(self, new_imgs: List[Path]):
         """
-        Terapkan GPS filter ke gambar baru.
-        Gambar yang lolos masuk ke batch.
+        Terapkan filter attitude (gate kedua di ground) lalu filter GPS ke gambar baru.
+        Gambar yang lolos KEDUA filter baru masuk ke batch.
         """
         for img_path in new_imgs:
             self._processed_imgs.add(img_path.name)
 
-            # Ekstrak GPS dari EXIF atau nama file
-            gps = self._extract_gps(img_path)
-            lat = gps.get("latitude", 0.0)
-            lon = gps.get("longitude", 0.0)
+            # Ekstrak GPS + attitude dari EXIF
+            meta = self._extract_flight_metadata(img_path)
+            lat  = meta.get("latitude", 0.0)
+            lon  = meta.get("longitude", 0.0)
+            roll = meta.get("roll", 0.0)
+            pitch = meta.get("pitch", 0.0)
 
+            # ── Gate 1: attitude (dicek duluan — gambar terlalu miring skip
+            #    total, tidak usah dicek jaraknya) ────────────────────────────
+            att_ok, worst_angle = self.attitude_filter.should_accept(roll, pitch)
+            if not att_ok:
+                log.info(
+                    f"  Gambar DITOLAK (attitude={worst_angle:.1f}° >= "
+                    f"{self.attitude_filter.threshold_deg}°, roll={roll:.1f}° pitch={pitch:.1f}°): "
+                    f"{img_path.name}"
+                )
+                continue
+
+            # ── Gate 2: jarak GPS dari gambar terakhir yang diterima ────────
             accept, dist = self.gps_filter.should_accept(lat, lon)
 
             if accept:
                 self._accepted_imgs.append(img_path)
-                self._accepted_gps.append(gps)
+                self._accepted_gps.append(meta)
 
                 if self._origin_lat is None:
                     self._origin_lat = lat
@@ -398,7 +465,8 @@ class SessionMonitor:
 
                 log.info(
                     f"✓ Gambar diterima: {img_path.name} "
-                    f"(jarak={dist:.1f}m) | Batch: {len(self._accepted_imgs)}/{self.batch_size}"
+                    f"(jarak={dist:.1f}m, attitude={worst_angle:.1f}°) | "
+                    f"Batch: {len(self._accepted_imgs)}/{self.batch_size}"
                 )
             else:
                 log.info(
@@ -486,11 +554,22 @@ class SessionMonitor:
         t = threading.Thread(target=self.run_stitch, daemon=True)
         t.start()
 
-    def _extract_gps(self, img_path: Path) -> dict:
+    def _extract_flight_metadata(self, img_path: Path) -> dict:
         """
-        Ekstrak GPS dari EXIF gambar.
-        Fallback ke GPS dummy jika tidak ada EXIF.
+        Ekstrak GPS (latitude/longitude/altitude/heading) DAN attitude
+        (roll/pitch) dari EXIF gambar yang disisipkan sender.py:
+          - GPS lat/lon/alt          -> GPS IFD standar
+          - Yaw/heading              -> GPS GPSImgDirection
+          - Roll & pitch             -> ImageDescription (JSON compact)
+
+        Fallback ke GPS dummy progresif + attitude 0 jika EXIF tidak ada
+        (misal gambar test/manual), supaya stitcher tetap bisa jalan.
         """
+        result = {
+            "latitude": None, "longitude": None, "altitude": 0.0,
+            "roll": 0.0, "pitch": 0.0, "yaw": 0.0,
+            "has_exif": False,
+        }
         try:
             import exifread
             with open(img_path, "rb") as f:
@@ -502,6 +581,7 @@ class SessionMonitor:
                 lat_ref  = str(tags.get("GPS GPSLatitudeRef", "N"))
                 lon_ref  = str(tags.get("GPS GPSLongitudeRef", "E"))
                 alt_tag  = tags.get("GPS GPSAltitude")
+                dir_tag  = tags.get("GPS GPSImgDirection")
 
                 lat = (lat_vals[0].num / lat_vals[0].den +
                        lat_vals[1].num / (lat_vals[1].den * 60) +
@@ -510,25 +590,44 @@ class SessionMonitor:
                        lon_vals[1].num / (lon_vals[1].den * 60) +
                        lon_vals[2].num / (lon_vals[2].den * 3600))
                 alt = float(alt_tag.values[0].num / alt_tag.values[0].den) if alt_tag else 0.0
+                yaw = float(dir_tag.values[0].num / dir_tag.values[0].den) if dir_tag else 0.0
 
                 if lat_ref.strip() == "S": lat = -lat
                 if lon_ref.strip() == "W": lon = -lon
 
-                return {"latitude": lat, "longitude": lon, "altitude": alt}
-        except Exception:
-            pass
+                result.update({
+                    "latitude": lat, "longitude": lon, "altitude": alt,
+                    "yaw": yaw, "has_exif": True,
+                })
 
-        # Fallback: gunakan GPS dummy progresif agar stitcher tetap berjalan
-        idx = len(self._processed_imgs)
-        return {
-            "latitude":  -7.123456 + idx * 0.0001,
-            "longitude": 112.654321 + idx * 0.0001,
-            "altitude":  80.0
-        }
+            desc_tag = tags.get("Image ImageDescription")
+            if desc_tag is not None:
+                try:
+                    attitude = json.loads(str(desc_tag))
+                    result["roll"]  = float(attitude.get("roll", 0.0))
+                    result["pitch"] = float(attitude.get("pitch", 0.0))
+                except (ValueError, TypeError):
+                    log.debug(f"ImageDescription bukan JSON attitude yang valid: {img_path.name}")
+
+        except Exception as e:
+            log.debug(f"Gagal baca EXIF {img_path.name}: {e}")
+
+        if result["latitude"] is None:
+            # Fallback: GPS dummy progresif agar stitcher tetap berjalan (mis. gambar test)
+            idx = len(self._processed_imgs)
+            result["latitude"]  = -7.123456 + idx * 0.0001
+            result["longitude"] = 112.654321 + idx * 0.0001
+            result["altitude"]  = 80.0
+
+        return result
+
+    # Alias biar backward compatible kalau ada kode lain yang masih merujuk nama lama
+    _extract_gps = _extract_flight_metadata
 
     def print_summary(self):
         log.info("\n" + "=" * 50)
         log.info("RINGKASAN STITCHING")
+        log.info(f"  {self.attitude_filter.stats}")
         log.info(f"  {self.gps_filter.stats}")
         log.info(f"  Mosaic dihasilkan: {self._mosaic_count}")
         log.info("=" * 50)
@@ -547,6 +646,8 @@ def parse_args():
                         help="Jumlah gambar per batch stitching")
     parser.add_argument("--gps-threshold", type=float, default=config.GPS_DISTANCE_THRESHOLD_M,
                         help="Jarak minimum antar gambar (meter)")
+    parser.add_argument("--attitude-threshold", type=float, default=config.STITCH_ATTITUDE_THRESHOLD_DEG,
+                        help="Ambang batas roll/pitch (derajat) — gambar di atas ini ditolak dari stitching")
     parser.add_argument("--poll-interval", type=float, default=2.0,
                         help="Interval scan folder (detik)")
     return parser.parse_args()
@@ -557,18 +658,20 @@ def main():
 
     log.info("=" * 60)
     log.info("PROGRAM-SENDER Stitcher v1.0")
-    log.info(f"  Sesi            : {args.session}")
-    log.info(f"  Batch size      : {args.batch} gambar")
-    log.info(f"  GPS threshold   : {args.gps_threshold} m")
-    log.info(f"  Poll interval   : {args.poll_interval} s")
+    log.info(f"  Sesi              : {args.session}")
+    log.info(f"  Batch size        : {args.batch} gambar")
+    log.info(f"  GPS threshold     : {args.gps_threshold} m")
+    log.info(f"  Attitude threshold: {args.attitude_threshold}°")
+    log.info(f"  Poll interval     : {args.poll_interval} s")
     log.info(f"  Combiner stitcher : {'✓ Tersedia' if STITCHER_AVAILABLE else '✗ Fallback OpenCV'}")
     log.info("=" * 60)
 
     monitor = SessionMonitor(
-        session_id      = args.session,
-        base_dir        = args.base_dir,
-        batch_size      = args.batch,
-        gps_threshold_m = args.gps_threshold
+        session_id             = args.session,
+        base_dir               = args.base_dir,
+        batch_size             = args.batch,
+        gps_threshold_m        = args.gps_threshold,
+        attitude_threshold_deg = args.attitude_threshold
     )
 
     log.info("Memantau folder sesi ... Tekan Ctrl+C untuk berhenti.")

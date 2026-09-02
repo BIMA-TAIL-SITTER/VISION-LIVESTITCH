@@ -7,10 +7,12 @@ Dijalankan di: Laptop (untuk testing sender.py / imu_monitor.py tanpa FC asli)
 
 Fungsi:
   Berperan sebagai Flight Controller PALSU. Membuka koneksi MAVLink via UDP
-  dan mengirimkan pesan HEARTBEAT + ATTITUDE beneran (bukan data dummy JSON),
-  persis seperti FC asli. sender.py dan imu_monitor.py bisa connect ke sini
-  TANPA perlu diubah kodenya sama sekali — karena keduanya sudah pakai
-  pymavlink yang mendukung koneksi serial maupun UDP.
+  dan mengirimkan pesan HEARTBEAT + ATTITUDE + GLOBAL_POSITION_INT + GPS_RAW_INT
+  beneran (bukan data dummy JSON), persis seperti FC asli. sender.py dan
+  imu_monitor.py bisa connect ke sini TANPA perlu diubah kodenya sama sekali —
+  karena keduanya sudah pakai pymavlink yang mendukung koneksi serial maupun UDP.
+  Termasuk simulasi GPS bergerak lurus (garis survey), jadi bisa dipakai buat
+  ngetes fitur embed GPS ke EXIF di sender.py juga.
 
 Mode simulasi:
   --mode sine      Roll & pitch berosilasi halus (sine wave) — bagus buat
@@ -113,6 +115,48 @@ class ScenarioAttitude:
 
 
 # =============================================================================
+# Generator GPS – simulasi posisi bergerak lurus (garis survey)
+# =============================================================================
+class GPSTrack:
+    """
+    Simulasi posisi GPS bergerak lurus dari titik awal dengan heading & speed
+    tertentu (meniru satu lintasan survey). Altitude relatif dibuat konstan
+    (bisa digoyang dikit biar realistis).
+    """
+
+    EARTH_R = 6378137.0  # meter
+
+    def __init__(self, start_lat: float, start_lon: float, start_alt_rel: float,
+                 heading_deg: float, speed_mps: float, no_fix: bool = False):
+        self.start_lat = start_lat
+        self.start_lon = start_lon
+        self.alt_rel   = start_alt_rel
+        self.heading   = math.radians(heading_deg)
+        self.speed     = speed_mps
+        self.no_fix    = no_fix
+        self.t0        = time.time()
+
+    def get(self):
+        t = time.time() - self.t0
+        dist = self.speed * t  # meter yang sudah ditempuh
+
+        dlat = (dist * math.cos(self.heading)) / self.EARTH_R
+        dlon = (dist * math.sin(self.heading)) / (self.EARTH_R * math.cos(math.radians(self.start_lat)))
+
+        lat = self.start_lat + math.degrees(dlat)
+        lon = self.start_lon + math.degrees(dlon)
+        alt_rel = self.alt_rel + 1.5 * math.sin(2 * math.pi * t / 20.0)  # goyangan altitude kecil
+        alt_msl = alt_rel + 100.0  # asumsi elevasi tanah 100m MSL, cuma buat simulasi
+
+        if self.no_fix:
+            fix_type, satellites = 0, 2
+        else:
+            fix_type, satellites = 3, 14
+
+        return lat, lon, alt_rel, alt_msl, fix_type, satellites
+
+
+# =============================================================================
 # Main
 # =============================================================================
 def parse_args():
@@ -137,6 +181,18 @@ def parse_args():
                         help="[sine] Periode osilasi roll (detik)")
     parser.add_argument("--rate", type=float, default=10.0,
                         help="Rate kirim ATTITUDE (Hz)")
+    parser.add_argument("--start-lat", type=float, default=-7.123456,
+                        help="Titik GPS awal - latitude")
+    parser.add_argument("--start-lon", type=float, default=112.654321,
+                        help="Titik GPS awal - longitude")
+    parser.add_argument("--start-alt", type=float, default=80.0,
+                        help="Altitude relatif (AGL, meter) awal")
+    parser.add_argument("--heading", type=float, default=90.0,
+                        help="Arah terbang simulasi (derajat, 0=utara, 90=timur)")
+    parser.add_argument("--speed", type=float, default=15.0,
+                        help="Kecepatan simulasi (m/s)")
+    parser.add_argument("--no-gps-fix", action="store_true",
+                        help="Simulasikan GPS BELUM fix (buat testing --require-gps-fix di sender.py)")
     return parser.parse_args()
 
 
@@ -157,18 +213,25 @@ def main():
         log.info(f"  Max roll      : ±{args.max_roll}° (lurus {args.straight_dur}s, belok {args.turn_dur}s)")
     log.info(f"  Jalankan sender.py / imu_monitor.py dengan LISTEN di port ini:")
     log.info(f"    --fc-port udpin:0.0.0.0:{args.port}   (atau --port untuk imu_monitor.py)")
+    log.info(f"  GPS awal      : {args.start_lat:.6f}, {args.start_lon:.6f} @ {args.start_alt}m AGL")
+    log.info(f"  GPS gerak     : heading {args.heading}°, speed {args.speed} m/s"
+              f"{'  [NO FIX]' if args.no_gps_fix else ''}")
     log.info("=" * 60)
 
     mav = mavutil.mavlink_connection(f"udpout:{args.target_host}:{args.port}", source_system=1)
-    log.info("Mulai streaming HEARTBEAT + ATTITUDE palsu (Ctrl+C untuk berhenti)...")
+    log.info("Mulai streaming HEARTBEAT + ATTITUDE + GPS palsu (Ctrl+C untuk berhenti)...")
 
     if args.mode == "sine":
         gen = SineAttitude(args.max_roll, args.max_pitch, args.period)
     else:
         gen = ScenarioAttitude(args.max_roll, args.straight_dur, args.turn_dur)
 
+    gps_gen = GPSTrack(args.start_lat, args.start_lon, args.start_alt,
+                        args.heading, args.speed, no_fix=args.no_gps_fix)
+
     interval = 1.0 / args.rate
-    last_hb  = 0.0
+    last_hb   = 0.0
+    last_gps  = 0.0
     prev_phase = None
 
     try:
@@ -199,7 +262,35 @@ def main():
                 0.0, 0.0, 0.0
             )
 
-            print(f"\r[IMU-SIM] Roll={roll:6.1f}°  Pitch={pitch:6.1f}°  Yaw={yaw:6.1f}°", end="", flush=True)
+            # GPS dikirim @ 5Hz (GLOBAL_POSITION_INT + GPS_RAW_INT)
+            if now - last_gps >= 0.2:
+                lat, lon, alt_rel, alt_msl, fix_type, satellites = gps_gen.get()
+
+                mav.mav.global_position_int_send(
+                    int(now * 1000) & 0xFFFFFFFF,
+                    int(lat * 1e7), int(lon * 1e7),
+                    int(alt_msl * 1000), int(alt_rel * 1000),
+                    0, 0, 0,  # vx, vy, vz (cm/s) - tidak disimulasikan
+                    int(yaw * 100) if yaw <= 360 else 0
+                )
+                mav.mav.gps_raw_int_send(
+                    int(now * 1e6) & 0xFFFFFFFFFFFFFFFF,
+                    fix_type,
+                    int(lat * 1e7), int(lon * 1e7), int(alt_msl * 1000),
+                    65535, 65535,  # eph, epv (unknown)
+                    0,             # vel
+                    65535,         # cog (unknown)
+                    satellites
+                )
+                last_gps = now
+
+                gps_str = f"GPS={'FIX' if fix_type >= 3 else 'NO-FIX'} lat={lat:.6f} lon={lon:.6f} alt={alt_rel:.1f}m"
+            else:
+                lat = lon = alt_rel = 0.0
+                gps_str = ""
+
+            print(f"\r[IMU-SIM] Roll={roll:6.1f}°  Pitch={pitch:6.1f}°  Yaw={yaw:6.1f}°  |  {gps_str}",
+                  end="", flush=True)
             time.sleep(interval)
 
     except KeyboardInterrupt:

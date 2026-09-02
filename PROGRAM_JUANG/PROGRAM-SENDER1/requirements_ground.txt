@@ -22,6 +22,7 @@ Pillow>=10.0.0
 
 # MAVLink (opsional, untuk menerima telemetry dari UAV)
 pymavlink>=2.4.41
+pyserial>=3.5                   # Dibutuhkan pymavlink untuk koneksi serial (USB/COM port)
 
 # Web API (opsional, untuk service.py)
 fastapi>=0.104.0

@@ -50,7 +50,7 @@ class FrameReassembler:
     Mereassemble fragment UDP menjadi frame JPEG lengkap.
 
     Format header setiap paket:
-      [4B frame_id][4B total_chunks][4B chunk_idx][data...]
+    [4B frame_id][4B total_chunks][4B chunk_idx][data...]
     """
 
     HEADER_FMT  = "!III"

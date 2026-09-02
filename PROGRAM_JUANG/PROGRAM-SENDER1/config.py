@@ -37,6 +37,11 @@ FC_BAUD_RATE        = 57600            # Sesuaikan dengan konfigurasi FC (Ardupi
 # Port UDP untuk imu_simulator.py (FC palsu via MAVLink over UDP, buat testing tanpa FC asli)
 SIM_MAVLINK_PORT    = 14550
 
+# Port UDP default untuk fc_router.py (fan-out FC fisik ke beberapa listener sekaligus)
+# sender.py dengarkan di FC_ROUTER_PORT_A, imu_monitor.py di FC_ROUTER_PORT_B, dst.
+FC_ROUTER_PORT_A    = 14552
+FC_ROUTER_PORT_B    = 14553
+
 # Threshold attitude: jika roll atau pitch melebihi nilai ini (derajat), streaming BERHENTI
 ROLL_THRESHOLD_DEG  = 45.0   # > 45° dianggap sedang berbelok tajam
 PITCH_THRESHOLD_DEG = 45.0   # > 45° pitch tidak ideal untuk ortho
@@ -46,6 +51,14 @@ STABLE_FRAME_COUNT  = 5
 # ── STITCHING ────────────────────────────────────────────────────────────────
 # Jarak minimum (meter) antar gambar sebelum di-stitch (GPS-based threshold)
 GPS_DISTANCE_THRESHOLD_M  = 3.0
+
+# Threshold attitude KHUSUS di sisi stitching (ground), independen dari
+# ROLL_THRESHOLD_DEG/PITCH_THRESHOLD_DEG di atas yang dipakai sender.py saat capture.
+# Ini adalah gate KEDUA (defense-in-depth): meski onboard gate sender.py sudah
+# menyaring di 45°, gambar yang lolos tetap disaring ulang lebih ketat di sini
+# sebelum ikut proses stitching — berguna kalau standar kualitas mosaic mau
+# diperketat tanpa perlu redeploy sender.py ke UAV.
+STITCH_ATTITUDE_THRESHOLD_DEG = 30.0
 
 # Jumlah gambar baru yang dikumpulkan sebelum auto-stitch dijalankan
 STITCH_BATCH_SIZE         = 5

@@ -272,7 +272,7 @@ def status_printer(img_receiver: ImageReceiverThread,
     while True:
         time.sleep(interval)
         log.info(
-            f"📊 STATUS | Gambar diterima: {img_receiver.img_count} | "
+            f"STATUS | Gambar diterima: {img_receiver.img_count} | "
             f"Data OD: {od_receiver.pkt_count} paket | "
             f"Total data: {img_receiver.total_bytes / 1024 / 1024:.2f} MB"
         )

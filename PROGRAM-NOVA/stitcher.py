@@ -9,7 +9,7 @@ Dijalankan BERSAMA receiver.py (proses terpisah)
 Fungsi:
   1. Memantau folder sesi dari receiver
   2. Menerapkan threshold GPS: gambar baru hanya di-stitch jika cukup jauh
-     dari gambar sebelumnya (mengurangi redundansi dan mempercepat stitching)
+    dari gambar sebelumnya (mengurangi redundansi dan mempercepat stitching)
   3. Mengumpulkan gambar dalam batch sebelum menjalankan stitching
   4. Overlay bounding box object detection (dari detections.jsonl) ke mosaic
   5. Menyimpan hasil mosaic dengan anotasi lokasi

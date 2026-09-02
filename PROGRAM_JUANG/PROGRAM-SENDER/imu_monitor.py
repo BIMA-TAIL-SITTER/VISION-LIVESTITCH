@@ -147,7 +147,7 @@ class AttitudeState:
             }
 
     def status_line(self) -> str:
-        status = "✓ STABIL  " if self.is_stable else "⚠ BERBELOK"
+        status = "STABIL  " if self.is_stable else "BERBELOK"
         gps_status = f"GPS={'FIX' if self.has_gps_fix else 'NO-FIX'}({self.satellites_visible})"
         return (
             f"{status} | "
@@ -192,7 +192,7 @@ class MAVLinkReader(threading.Thread):
                 return
 
             log.info(
-                f"✓ FC terhubung! "
+                f"FC terhubung! "
                 f"System ID={self._mav.target_system} "
                 f"Component ID={self._mav.target_component}"
             )
@@ -279,7 +279,7 @@ class TelemetrySender(threading.Thread):
         self._sock       = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def run(self):
-        log.info(f"Telemetry Sender → {self.ground_host}:{self.ground_port} ({self.interval}s interval)")
+        log.info(f"Telemetry Sender = {self.ground_host}:{self.ground_port} ({self.interval}s interval)")
         while True:
             try:
                 data  = json.dumps(self.state.to_dict()).encode("utf-8")
@@ -302,11 +302,11 @@ def display_loop(state: AttitudeState, interval: float = 0.5):
         if state.is_stable != prev_stable:
             if state.is_stable:
                 log.info(f"{'='*60}")
-                log.info("🟢 PESAWAT STABIL – Streaming AKTIF")
+                log.info("PESAWAT STABIL – Streaming AKTIF")
                 log.info(f"{'='*60}")
             else:
                 log.warning(f"{'='*60}")
-                log.warning("🔴 PESAWAT BERBELOK – Streaming DIHENTIKAN")
+                log.warning("PESAWAT BERBELOK – Streaming DIHENTIKAN")
                 log.warning(f"  Roll={state.roll_deg:.1f}° (max {config.ROLL_THRESHOLD_DEG}°) | "
                             f"Pitch={state.pitch_deg:.1f}° (max {config.PITCH_THRESHOLD_DEG}°)")
                 log.warning(f"{'='*60}")

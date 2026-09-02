@@ -76,6 +76,16 @@ class AttitudeState:
         self.is_stable  = True
         self.armed      = False
         self.mode       = "UNKNOWN"
+
+        # GPS
+        self.lat              = 0.0
+        self.lon              = 0.0
+        self.alt_rel_m        = 0.0
+        self.alt_msl_m        = 0.0
+        self.fix_type         = 0
+        self.satellites_visible = 0
+        self.has_gps_fix      = False
+
         self._lock      = threading.Lock()
 
     def update(self, roll_deg, pitch_deg, yaw_deg,
@@ -95,6 +105,19 @@ class AttitudeState:
                 self.pitch_deg < config.PITCH_THRESHOLD_DEG
             )
 
+    def update_gps(self, lat, lon, alt_rel_m, alt_msl_m):
+        with self._lock:
+            self.lat       = lat
+            self.lon       = lon
+            self.alt_rel_m = alt_rel_m
+            self.alt_msl_m = alt_msl_m
+
+    def update_gps_fix(self, fix_type, satellites_visible):
+        with self._lock:
+            self.fix_type          = fix_type
+            self.satellites_visible = satellites_visible
+            self.has_gps_fix       = fix_type >= 3
+
     def to_dict(self) -> dict:
         with self._lock:
             return {
@@ -111,17 +134,28 @@ class AttitudeState:
                 "thresholds": {
                     "roll":  config.ROLL_THRESHOLD_DEG,
                     "pitch": config.PITCH_THRESHOLD_DEG
+                },
+                "gps": {
+                    "latitude":  round(self.lat, 7),
+                    "longitude": round(self.lon, 7),
+                    "altitude_rel": round(self.alt_rel_m, 2),
+                    "altitude_msl": round(self.alt_msl_m, 2),
+                    "fix_type":  self.fix_type,
+                    "satellites": self.satellites_visible,
+                    "has_fix":   self.has_gps_fix,
                 }
             }
 
     def status_line(self) -> str:
         status = "✓ STABIL  " if self.is_stable else "⚠ BERBELOK"
+        gps_status = f"GPS={'FIX' if self.has_gps_fix else 'NO-FIX'}({self.satellites_visible})"
         return (
             f"{status} | "
             f"Roll={self.roll_deg:6.2f}° "
             f"Pitch={self.pitch_deg:6.2f}° "
             f"Yaw={self.yaw_deg:7.2f}° | "
-            f"Mode={self.mode} Armed={'Y' if self.armed else 'N'}"
+            f"Mode={self.mode} Armed={'Y' if self.armed else 'N'} | "
+            f"{gps_status} lat={self.lat:.6f} lon={self.lon:.6f} alt={self.alt_rel_m:.1f}m"
         )
 
 

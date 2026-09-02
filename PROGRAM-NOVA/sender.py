@@ -11,7 +11,7 @@ Fungsi:
   3. Hanya mengirim frame jika pesawat STABIL (tidak sedang berbelok)
   4. Mengirim frame JPEG via UDP ke ground station
   5. Menerima paket Object Detection dari program OD di FC dan meneruskannya
-     ke ground via UDP JSON
+    ke ground via UDP JSON
 
 Cara Jalankan di Raspi:
   python3 sender.py --host 192.168.1.100 --img-port 5600 --od-port 5601
