@@ -97,11 +97,13 @@ class Combiner:
         src_pts = np.float32([kp2[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
         dst_pts = np.float32([kp1[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
 
-        A, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts)
+        # for inlier detection and checker, dont throw the inlier mask away
+        # the right block used to be empty, but we need to return the inlier mask for further processing
+        A, inlier_mask = cv2.estimateAffinePartial2D(src_pts, dst_pts)
         if A is not None:
-            return A, None, src_pts, dst_pts
-        H, _ = cv2.findHomography(src_pts, dst_pts, method=cv2.RANSAC)
-        return None, H, src_pts, dst_pts
+            return A, None, inlier_mask, src_pts, dst_pts
+        H, inlier_mask = cv2.findHomography(src_pts, dst_pts, method=cv2.RANSAC)
+        return None, H, inlier_mask, src_pts, dst_pts
     
     def __compute_canvas_bounds(self, shape1, shape2, A, H):
         ''' Return (xMin, yMin, xMax, yMax) of the canvas needed to fit both images after transformation '''
@@ -192,6 +194,34 @@ class Combiner:
         warped_img2 = warped_img2_float.astype(np.uint8)
 
         return warped_result + warped_img2
+
+    def __check_gps_translation_sanity(self, index, H_rel_3x3, image_shape):
+        """
+        Check if the estimated translation from H_rel_3x3 is consistent with the GPS translation in dataMatrix.
+        If the difference is too large, return False. Otherwise, return True.
+        """
+        FOV_deg = 122.0
+        altitude_m = self.dataMatrix[index, 2]
+        ground_width_m = 2 * altitude_m * np.tan(np.radians(FOV_deg / 2))
+        meters_per_pixel = ground_width_m / image_shape[1]
+        TRANSLATION_TOLERANCE_M = 4.5 # in meters
+        tolerance_px = TRANSLATION_TOLERANCE_M / meters_per_pixel
+
+        # compute translation from the center of the image 
+        h, w = image_shape[:2]
+        center = np.array([w/2, h/2, 1.0])
+        mapped_center = H_rel_3x3 @ center
+
+        # translation_estimated_px = H_rel_3x3[0:2, 2]
+        translation_estimated_px = mapped_center[:2] - np.array([w/2, h/2])
+        translation_actual_m = self.dataMatrix[index, 0:2] - self.dataMatrix[index-1, 0:2]
+        translation_actual_px = translation_actual_m / meters_per_pixel
+
+        translation_error_px = np.linalg.norm(translation_estimated_px - translation_actual_px)
+        if translation_error_px > tolerance_px:
+            print(f"⚠️  Warning: Estimated translation {translation_estimated_px} is too far from actual translation {translation_actual_px}.")
+            return False
+        return True
     
     # ------------------------------------------------------------------ #
     #  PUBLIC FUNCTIONs                                                  #
@@ -261,20 +291,31 @@ class Combiner:
         
         # --- transformation estimation --- #
         t = time.time()
-        A_rel, H_rel,_, _ = self.__estimate_transform(kp1, kp2, matches)
+        A_rel, H_rel,inlier_mask, _ , _ = self.__estimate_transform(kp1, kp2, matches)
         elapsed_tf = time.time() - t
         self.timing_stats['transformation'] += elapsed_tf
         print(f"⏱️  Transformation Estimation: {elapsed_tf:.3f}s")
 
         if A_rel is None and H_rel is None:
             print(f"⚠️  Warning: Could not compute transformation for image pair {index-1}-{index}. Skipping.")
-            return
-        
+            return self.result_image
+
+        # inlier ratio check
+        inlier_ratio = inlier_mask.sum() / len(matches) if inlier_mask is not None else 0.0
+        if inlier_ratio < 0.6:
+            print(f"⚠️  Warning: Low inlier ratio ({inlier_ratio:.2f}) for image pair {index-1}-{index}. Skipping.")
+            return self.result_image
+
         # --- chained / accumulated homography ---
         if A_rel is not None:
             H_rel_3x3 = np.vstack([A_rel, [0, 0, 1]])
         else:
             H_rel_3x3 = H_rel
+
+        # sanity check: if corresponding translation of H rel 3x3 compared to 
+        # dataMatrix[index, 0:2] - dataMatrix[index-1, 0:2] is too large, skip this image
+        if not self.__check_gps_translation_sanity(index, H_rel_3x3, image2.shape):
+            return self.result_image 
 
         self.H_rel_prev = H_rel_3x3
 

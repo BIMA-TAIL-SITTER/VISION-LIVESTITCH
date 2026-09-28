@@ -6,6 +6,7 @@ import time
 import argparse
 from pathlib import Path
 import asyncio
+import config
 
 HOST = "0.0.0.0"  # listen di semua interface
 # PORT = 5001       # bebas, asal sama dengan sender
@@ -16,11 +17,11 @@ HOST = "0.0.0.0"  # listen di semua interface
 # PORT_THREE = 5003
 
 # for multi uav support configuration
-UAV_CONFIG = {
-    "uav1": {"port": 5001, "session_id": "uav_1"},
-    "uav2": {"port": 5002, "session_id": "uav_2"},
-    # "uav3": {"port": 5003, "session_id": "uav_3"},
-}
+# UAV_CONFIG = {
+#     "uav1": {"port": 5001, "session_id": "uav_1"},
+#     "uav2": {"port": 5002, "session_id": "uav_2"},
+#     # "uav3": {"port": 5003, "session_id": "uav_3"},
+# }
 
 async def handle_uavs_connections(reader, writer, session_id, save_dir):
     "async handler for each UAV connection, to be used with asyncio.start_server"
@@ -72,9 +73,9 @@ async def handle_uavs_connections(reader, writer, session_id, save_dir):
 async def main():
     print("[SERVER] Starting server MULTI UAV IMAGE RECEIVER...")
     servers = []
-    for uav_name, config in UAV_CONFIG.items():
-        port = config["port"]
-        session_id = config["session_id"]
+    for uav_name, cfg in config.UAV_CONFIG.items():
+        port = cfg["port"]
+        session_id = cfg["session_id"]
         save_dir = Path(f"sessions/{session_id}/images")
         save_dir.mkdir(parents=True, exist_ok=True)
 

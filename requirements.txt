@@ -28,6 +28,7 @@ flake8>=4.0.0          # Code quality
 
 # For handling EXIF data in images
 exifread>=3.5.1       # For handling EXIF data in images
+piexif>=1.1.3           # For handling EXIF data in images
 
 scipy>=1.7.0           # Scientific computing utilities
 

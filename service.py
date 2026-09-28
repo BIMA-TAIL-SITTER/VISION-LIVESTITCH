@@ -18,8 +18,15 @@ from watchdog.events import FileSystemEventHandler
 sys.path.insert(0, os.path.dirname(__file__))
 from src import utilities as util
 from src import Combiner
+from src.flight_metadata import (
+    extract_flight_metadata,
+    build_data_matrix,
+    GPSDistanceFilter,
+    AttitudeThresholdFilter,
+)
 import cv2
 import numpy as np
+import config
 
 # Disable OpenCL for stability
 cv2.ocl.setUseOpenCL(False)
@@ -50,6 +57,13 @@ class StitchingSession:
         self.ws_clients = []
         self.last_stitch_count = 0
         self.observer = None
+
+        # per session filters -- for multi uav configurations
+        self.gps_filter = GPSDistanceFilter()
+        self.attitude_filter = AttitudeThresholdFilter()
+        self.accepted_images: List[Path] = []
+        self.accepted_metadata: List[Dict] = []
+        self._state_lock = threading.Lock()
     
     def _count_images(self):
         """Count all image files in the images folder"""
@@ -57,6 +71,19 @@ class StitchingSession:
         for ext in ['*.jpg', '*.JPG', '*.jpeg', '*.JPEG', '*.png', '*.PNG', '*.tif', '*.TIF']:
             count += len(list(self.image_folder.glob(ext)))
         return count
+
+    def claim_stitch(self) -> bool:
+        """Atomically claim the stitching slot. Returns False if a stitch is already running."""
+        with self._state_lock:
+            if self.is_stitching:
+                return False
+            self.is_stitching = True
+            self.last_stitch_count = len(self.accepted_images)
+            return True
+
+    def finish_stitch(self):
+        with self._state_lock:
+            self.is_stitching = False
 
 # Watchdog handler
 class SessionFolderHandler(FileSystemEventHandler):
@@ -117,7 +144,7 @@ class SessionFolderHandler(FileSystemEventHandler):
         ).start()
     
     def _process_new_file(self, file_path):
-        """Process a newly detected file"""
+        """Process a newly detected file: extract metadata, gate it, admit it if it passes."""
         if self.session_id not in sessions:
             return
             
@@ -125,23 +152,39 @@ class SessionFolderHandler(FileSystemEventHandler):
         
         # Update image count
         session.image_count = session._count_images()
+
+        meta = extract_flight_metadata(file_path)
+        if meta["has_telemetry"]:
+            att_ok, worst_angle = session.attitude_filter.should_accept(meta["roll"], meta["pitch"])
+            if not att_ok:
+                print(f"[FILTER] Rejected (attitude {worst_angle:.1f}° over threshold): {file_path}")
+                return
+
+            gps_ok, dist = session.gps_filter.should_accept(meta["latitude"], meta["longitude"])
+            if not gps_ok:
+                print(f"[FILTER] Rejected (too close, {dist:.1f}m from last accepted): {file_path}")
+                return
+        else:
+            print(f"[FILTER] Accepted WITHOUT telemetry (degraded confidence): {file_path}")
+
+        session.accepted_images.append(Path(file_path))
+        session.accepted_metadata.append(meta)
         
-        print(f"[WATCHDOG] Session {self.session_id}: {session.image_count} total images")
+        print(f"[WATCHDOG] Session {self.session_id}: {len(session.accepted_images)} total accepted images")
         
         # Notify clients
         asyncio.run(self._notify_clients(session, file_path))
         
         # Check if auto-stitch should trigger
-        if session.config.auto_stitch_enabled and not session.is_stitching:
-            images_since_last_stitch = session.image_count - session.last_stitch_count
-            
-            if images_since_last_stitch >= session.config.auto_stitch_threshold:
-                print(f"[AUTO-STITCH] Triggering for session {self.session_id} ({images_since_last_stitch} new images)")
-                session.last_stitch_count = session.image_count
-                
+        if session.config.auto_stitch_enabled:
+            images_since_last_stitch = len(session.accepted_images) - session.last_stitch_count
+
+            if images_since_last_stitch >= session.config.auto_stitch_threshold and session.claim_stitch():
+                print(f"[AUTO-STITCH] Triggering for session {self.session_id} ({images_since_last_stitch} new accepted images)")
+
                 # Trigger stitching
                 threading.Thread(
-                    target=lambda: asyncio.run(run_stitching(session.session_id)),
+                    target=lambda: asyncio.run(run_stitching(session.session_id, claimed=True)),
                     daemon=True
                 ).start()
     
@@ -197,48 +240,69 @@ def stop_folder_monitoring(session_id: str):
     return False
 
 def discover_existing_sessions():
-    """Auto-discover existing session folders on startup"""
+    """
+    Set up sessions from config.UAV_CONFIG first (monitoring/auto-stitch as
+    configured there -- single source of truth shared with receiver_socket.py),
+    then pick up any other pre-existing session folders not covered by the
+    config (monitoring off by default, matching prior behavior for ad-hoc/manual
+    sessions like leftover test folders).
+    """
     sessions_root = Path("./sessions")
-    if not sessions_root.exists():
-        print("[STARTUP] No sessions directory found, creating...")
-        sessions_root.mkdir(parents=True, exist_ok=True)
-        return
-    
-    print("[STARTUP] Discovering existing sessions...")
+    sessions_root.mkdir(parents=True, exist_ok=True)
+
+    print("[STARTUP] Setting up configured UAV sessions...")
+    for uav_cfg in config.UAV_CONFIG.values():
+        session_id = uav_cfg["session_id"]
+        cfg = StitchConfig(
+            sessionId=session_id,
+            auto_stitch_threshold=uav_cfg["auto_stitch_threshold"],
+            auto_stitch_enabled=uav_cfg["auto_stitch_enabled"],
+            folder_monitoring_enabled=uav_cfg["folder_monitoring_enabled"],
+            output_name=uav_cfg["output_name"],
+        )
+        sessions[session_id] = StitchingSession(session_id, cfg)
+        if cfg.folder_monitoring_enabled:
+            start_folder_monitoring(session_id)
+        print(f"[STARTUP]   - {session_id}: monitoring={cfg.folder_monitoring_enabled}, auto_stitch={cfg.auto_stitch_enabled}")
+
+    print("[STARTUP] Discovering other existing session folders...")
     discovered = 0
-    
+
     for session_dir in sessions_root.iterdir():
         if not session_dir.is_dir():
             continue
-        
+
         session_id = session_dir.name
+        if session_id in sessions:
+            continue  # already set up from config.UAV_CONFIG above
+
         images_dir = session_dir / "images"
-        output_dir = session_dir / "output"
-        
+
         # Check if it looks like a valid session
         if images_dir.exists():
             print(f"[STARTUP] Found session: {session_id}")
-            
-            # Create session with default config
-            config = StitchConfig(
+
+            # Create session with default config (monitoring off -- ad-hoc/manual session)
+            cfg = StitchConfig(
                 sessionId=session_id,
                 auto_stitch_threshold=5,
-                auto_stitch_enabled=False,  # Don't auto-enable for discovered sessions
+                auto_stitch_enabled=False,
                 folder_monitoring_enabled=False,
                 output_name="finalResult.png"
             )
-            
-            sessions[session_id] = StitchingSession(session_id, config)
+
+            sessions[session_id] = StitchingSession(session_id, cfg)
             print(f"[STARTUP]   - {sessions[session_id].image_count} images found")
             discovered += 1
-    
-    print(f"[STARTUP] Discovered {discovered} existing session(s)")
+
+    print(f"[STARTUP] Discovered {discovered} additional session(s)")
 
 # Stitching function using your existing code
-async def run_stitching(session_id: str):
-    """Run the stitching process using your ImageMosaic logic"""
+async def run_stitching(session_id: str, claimed: bool = False):
+    """Run the stitching process using your ImageMosaic logic using the accepted filtered image list"""
     session = sessions[session_id]
-    session.is_stitching = True
+    if not claimed and not session.claim_stitch():
+        return
     
     # Notify clients that stitching started
     for ws in session.ws_clients:
@@ -251,63 +315,47 @@ async def run_stitching(session_id: str):
             pass
     
     start_time = time.time()
+    success = False
+    error_msg = None
     
     try:
-        print(f"[STITCH] Loading images from {session.image_folder}")
+        images_to_stitch = list(session.accepted_images)
+        metadata_to_stitch = list(session.accepted_metadata)
+        print(f"[STITCH] Loading {len(images_to_stitch)} accepted images from {session.image_folder}")
         
-        # Use your existing importData function
-        allImages, gps_data = util.importData(str(session.image_folder), return_as_dict=True)
-        
-        if not allImages:
-            raise Exception("No images found")
-        
-        print(f"[STITCH] Loaded {len(allImages)} images")
-        
-        # Create data matrix
-        dataMatrix = np.zeros((len(gps_data), 6))
-        origin_lat, origin_lon, origin_alt = None, None, None
-        
-        for i, gps in enumerate(gps_data):
-            if i == 0:
-                origin_lat = gps.get("latitude", 0.0)
-                origin_lon = gps.get("longitude", 0.0)
-                origin_alt = gps.get("altitude", 0.0)
-                print(f"[STITCH] Reference point: Lat={origin_lat:.6f}, Lon={origin_lon:.6f}, Alt={origin_alt:.2f}m")
-            
-            # Convert GPS to local coordinates
-            x = (gps.get("longitude", 0.0) - origin_lon) * 111320 * np.cos(np.radians(origin_lat))
-            y = (gps.get("latitude", 0.0) - origin_lat) * 110540
-            z = gps.get("altitude", 0.0)
-            
-            dataMatrix[i, 0] = x
-            dataMatrix[i, 1] = y
-            dataMatrix[i, 2] = z
-            dataMatrix[i, 3] = 0  # Yaw
-            dataMatrix[i, 4] = 0  # Pitch
-            dataMatrix[i, 5] = 0  # Roll
-        
-        # Create combiner and run stitching
+        images = []
+        valid_metadata = []
+        for path, meta in zip(images_to_stitch, metadata_to_stitch):
+            img = cv2.imread(str(path))
+            if img is not None:
+                images.append(img)
+                valid_metadata.append(meta)
+            else:
+                print(f"[STITCH] Warning: failed to read {path}")
+
+        if len(images) < 2:
+            raise Exception("Not enough valid accepted images for stitching")
+
+        dataMatrix = build_data_matrix(valid_metadata)
+
         print("[STITCH] Starting mosaic generation...")
-        my_combiner = Combiner.Combiner(allImages, dataMatrix, str(session.output_folder))
+        my_combiner = Combiner.Combiner(images, dataMatrix, str(session.output_folder))
         result = my_combiner.create_mosaic()
-        
+
         if result is not None:
             output_path = session.output_folder / session.config.output_name
             cv2.imwrite(str(output_path), result)
             print(f"[STITCH] Saved result to {output_path}")
             success = True
-            error_msg = None
         else:
-            success = False
             error_msg = "Stitching failed"
-        
+
     except Exception as e:
         import traceback
         print(f"[STITCH] Error: {e}")
         traceback.print_exc()
-        success = False
         error_msg = str(e)
-    
+
     elapsed_time = time.time() - start_time
     
     # Notify clients that stitching completed
@@ -323,7 +371,7 @@ async def run_stitching(session_id: str):
         except:
             pass
     
-    session.is_stitching = False
+    session.finish_stitch()
 
 # Lifespan context manager for startup and shutdown
 @asynccontextmanager
@@ -456,12 +504,12 @@ async def trigger_stitch(session_id: str, background_tasks: BackgroundTasks):
     
     session = sessions[session_id]
     
-    if session.is_stitching:
+    if not session.claim_stitch():
         return {"status": "Stitching already in progress"}
     
-    session.last_stitch_count = session.image_count
-    background_tasks.add_task(run_stitching, session_id)
-    return {"status": "Stitching started", "image_count": session.image_count}
+    # session.last_stitch_count = session.image_count
+    background_tasks.add_task(run_stitching, session_id, True)
+    return {"status": "Stitching started", "image_count": len(session.accepted_images)}
 
 @app.get("/session/{session_id}/result")
 async def get_result_image(session_id: str):
@@ -508,12 +556,13 @@ async def get_session_status(session_id: str):
     return {
         "session_id": session_id,
         "image_count": session.image_count,
+        "accepted_count": len(session.accepted_images),
         "is_stitching": session.is_stitching,
         "auto_stitch_enabled": session.config.auto_stitch_enabled,
         "auto_stitch_threshold": session.config.auto_stitch_threshold,
         "folder_monitoring_enabled": session.config.folder_monitoring_enabled,
         "last_stitch_count": session.last_stitch_count,
-        "images_since_last_stitch": session.image_count - session.last_stitch_count
+        "images_since_last_stitch": len(session.accepted_images) - session.last_stitch_count
     }
 
 @app.websocket("/ws/{session_id}")
