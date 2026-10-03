@@ -50,6 +50,9 @@ class Combiner:
         self._consecutive_rejections = 0
         self.MAX_BRIDGE_GAP = 3
 
+        # last accepted frame index for attitude drift check
+        self.last_acc_index = 0
+
     # ------------------------------------------------------------------ #
     #  PRIVATE HELPERS                                                     #
     # ------------------------------------------------------------------ #
@@ -306,7 +309,20 @@ class Combiner:
             return False
         return True
     
-    
+    def __check_attitude_drift(self, index):
+        """
+        Check if the estimated roll/pitch from the attitude data is within reasonable bounds.
+        If the roll/pitch is too large, return False. Otherwise, return True.
+        """
+        ATTITUDE_DRIFT_TOLERANCE_DEG = 7.8 # initial: 7.5
+        roll_delta = abs(self.dataMatrix[index, 5] - self.dataMatrix[self.last_acc_index, 5])
+        pitch_delta = abs(self.dataMatrix[index, 4] - self.dataMatrix[self.last_acc_index, 4])
+        drift = max(roll_delta, pitch_delta)
+
+        if drift > ATTITUDE_DRIFT_TOLERANCE_DEG:
+            print(f"⚠️  Warning: Attitude drift {drift:.2f}° exceeds tolerance of {ATTITUDE_DRIFT_TOLERANCE_DEG}° from last accepted frame at index {self.last_acc_index}. Skipping")
+            return False
+        return True
 
     # ------------------------------------------------------------------ #
     #  PUBLIC FUNCTIONs                                                  #
@@ -319,6 +335,10 @@ class Combiner:
         # order in which the images are given is the best order.
         image1 = self.image_list[index-1].copy()
         image2 = self.image_list[index].copy()
+
+        if not self.__check_attitude_drift(index):
+            self.__bridge_or_freeze(index, image2.shape)
+            return self.result_image
 
         # --- ADAPTIVE ROI PREDICTION (towards initial images to incoming images)--- #
         if self.H_rel_prev is not None:
@@ -427,6 +447,7 @@ class Combiner:
 
         # --- end of transformation estimation --- #
         self._consecutive_rejections = 0
+        self.last_acc_index = index
 
         # --- warping --- #
         t = time.time()

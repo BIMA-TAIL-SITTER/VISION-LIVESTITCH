@@ -1,7 +1,7 @@
 # Master To-Do: Stitching Engine (`src/Combiner.py`) — Merged Tracking
 
 > Gabungan checklist dari `docs/DRIFT_MISREGISTRATION.md` (investigasi awal, kink farmland-aliasing) + `docs/CHAIN_BRIDGING_AND_THRESHOLD_CALIBRATION.md` (kelanjutan: chain-bridging bug, kalibrasi threshold, temuan GoPro) + `docs/TASK9_VERIFICATION_FINDINGS.md` (verifikasi full-pipeline yang PERTAMA KALI nemuin repro case kink `43↔44` dan nyatet to-do queueing/GCS). Dokumen ini CUMA tracking status — detail lengkap/narasi tetep ada di dokumen-dokumen sumbernya, plus `docs/GPS_SANITY_CHECK_DEBUG_LOG.md`.
-> **Update terakhir**: 2026-09-29, abis sesi kalibrasi threshold + tes dataset GoPro.
+> **Update terakhir**: 2026-10-03, abis landing attitude drift gate (`__check_attitude_drift`) + overlap density `GPS_DISTANCE_THRESHOLD_M=2.0`, dan nemuin to-do baru soal collinear match/inlier_ratio.
 
 ---
 
@@ -25,14 +25,16 @@
 - [x] **Spatial spread check** (`DRIFT_MISREGISTRATION.md §6` item 3, opsi tambahan yang sempet dieksplor) — diimplementasi (`__check_spatial_cross_validation`, core-vs-far residual check), TAPI kemudian **DIHAPUS** — superseded sama kombinasi bounded-bridge + threshold-retune yang hasilnya udah sebanding tanpa nambah kompleksitas.
 - [x] **Chain-bridging gap bug** (ditemuin BARU pas sesi kalibrasi ini, gak ada di `DRIFT_MISREGISTRATION.md` awal — lihat bagian "BARU MUNCUL" di bawah buat konteks penemuannya) — resolved via bounded fallback di atas.
 - [x] **Repro case konkret buat kink** (`TASK9_VERIFICATION_FINDINGS.md §5`) — frame pair `43↔44` (dataset lama, 2026-09-26) ke-identifikasi sebagai origin kink (cuma 4 match, 1 di antaranya garis diagonal implausible). Ini yang jadi validasi before/after buat semua fix di atas. Juga kekonfirmasi di §4: skew sistemik (bug degrees/radians) HILANG abis fix attitude-extraction, kink lokal masih ada (terpisah, yang akhirnya ditutup checklist di atas).
+- [x] **Overlap density (`GPS_DISTANCE_THRESHOLD_M`) diturunin ke `2.0`** — dites, sempet muncul "soft kink" baru (`intermediateResult_47/49/53.png`) karena 2 frame manuver yang BERSEBELAHAN bisa "konsisten" satu sama lain walau keduanya sama-sama udah drift jauh dari attitude normal (GPS sanity check cuma ngecek pasangan `index-1`↔`index`, gak nangkep drift bertahap). Root-cause ini confirmed via instrumentasi real (`matches_46_47.jpg` dibandingin `matches_43_44.jpg`, plus tabel roll/pitch delta per frame) — lihat `docs/explainer/COMBINER_FUNCTIONS_REFERENCE.md §3`.
+- [x] **Attitude drift gate ditambahin** (`__check_attitude_drift`, user yang nulis) — bandingin roll/pitch frame sekarang vs `self.last_acc_index` (BUKAN `index-1`), independen dari SIFT/GPS-translation, dipanggil PALING AWAL di `combine()` sebelum SIFT jalan sama sekali. Nutup celah yang GPS sanity check gak nangkep (lihat poin di atas). Sempet ada bug (`self.last_acc_index = 0` ketimbang `= index` di jalur sukses — referensi gak pernah maju dari frame 0) — ketangkep & fixed pas code review sebelum dites. User udah tes ulang dataset `output/uav_1/images` (`GPSDistanceFilter(threshold_m=2.0)`, `ATTITUDE_DRIFT_TOLERANCE_DEG=7.5°`), HASIL DISUKAI user. Rentang `7°-9°` dicatet aman buat di-tuning ulang kalo perlu. **Trade-off yang perlu diinget**: di run tes ini, gate sukses nolak 47/49/53, TAPI abis frame `44` gak ada SATU PUN frame lolos semua gate sampe akhir data (56) — mosaic stall, sisanya cuma di-bridge/freeze. Belum ada mekanisme "pulih" begitu drone balik stabil pasca-manuver (lihat keyframe re-anchoring di bawah).
 
 ---
 
 ## 🟡 MASIH TERBUKA (dari checklist awal, belum disentuh)
 
-- [ ] **Keyframe re-anchoring** (`DRIFT_MISREGISTRATION.md §6` item 5) — buat cumulative drift jangka panjang, SENGAJA dipisah dari bug misregistration single-frame ini. Belum digarap sama sekali.
-- [ ] **Overlap density** (`GPS_DISTANCE_THRESHOLD_M`, sekarang `3.0`) — sekarang sanity check udah bener dikalibrasi, KEMUNGKINAN aman diturunin lagi (density lebih rapat, ghosting dari feather-blend jarang overlap berkurang) TANPA balik kena resiko kink zona manuver. **Belum dites.**
+- [ ] **Keyframe re-anchoring** (`DRIFT_MISREGISTRATION.md §6` item 5) — buat cumulative drift jangka panjang, SENGAJA dipisah dari bug misregistration single-frame ini. Makin relevan sekarang: attitude drift gate (RESOLVED di atas) nunjukin mosaic bisa "stall" abis manuver panjang (gak ada frame lolos sampe akhir data di satu run tes) karena gak ada cara buat drone yang udah balik stabil pasca-manuver "diterima lagi" tanpa nunggu balik deket attitude `last_acc_index` yang lama. Belum digarap sama sekali.
 - [ ] **Bug kecil**: `dataMatrix[0] == [0,0]` by-construction (origin koordinat lokal) ke-detect SALAH sebagai "gak ada telemetry" di pengecekan fallback (`__simple_fallback_transform`). Dampak kecil (belum ada yang ketempel di titik itu), tapi logic-nya ambigu — perlu cek `has_telemetry` langsung, bukan infer dari posisi.
+- [ ] **Match-distribution/conditioning check buat `inlier_ratio`** (🆕 ketemu pas investigasi kenapa frame awal `0↔1`, `1↔2` ketolak padahal visual-nya fine) — liat bagian "PROBLEM BARU" di bawah (#3) buat detail.
 - [ ] **Auto-stitch queueing/batching** (`TASK9_VERIFICATION_FINDINGS.md §3, §6`) — dua masalah terkait, sama-sama nunjuk ke kebutuhan queue proper (bukan "baca apapun yang numpuk pas dibaca" kayak sekarang):
   - **(a) Gambar terakhir "yatim"** — `run_stitching()` baca `accepted_images` APAPUN yang udah numpuk pas dia mulai baca, bukan batch bersih kelipatan `auto_stitch_threshold` (5). Konsekuensi: gambar yang keterima PAS SETELAH 1 batch stitch mulai jalan bisa nyangkut gak ke-stitch sama sekali sampe ada trigger lagi (atau manual `/stitch`).
   - **(b) Karakteristik `combine()` yang N-1 dari N gambar** — `image_list[0]` jadi seed doang, gak pernah di-feature-match/di-validasi independen. Ini emang desain algoritma chaining sekarang (bukan bug queueing), tapi kalo desain queue baru motong-motong batch/re-anchor, tiap gambar pertama batch baru bakal kena karakteristik "gak pernah divalidasi" ini juga — (a) dan (b) perlu didesain bareng.
@@ -59,6 +61,18 @@ Dites ke dataset GoPro (`dataset/test_2`, lensa wide/fisheye) pake threshold yan
 
 **Belum dimulai.** Butuh: (a) cara deteksi kamera/profile per sesi (EXIF `Make`/`Model`), (b) koefisien distorsi per model kamera (kalibrasi checkerboard standar, sekali per kamera), (c) step undistortion ditambahin ke `__preprocess_images` sebelum downsample/unrotation yang udah ada.
 
+### 3. `inlier_ratio` bisa ke-gate FALSE NEGATIVE pas match-nya COLLINEAR/clustered (🆕 OPEN, medium priority)
+
+Ketemu pas investigasi: dataset `output/uav_1/images`, pair `0↔1` dan `1↔2` (frame paling awal, abis takeoff) ketolak inlier ratio (`0.48`, `0.54` — di bawah gate `0.6`), padahal VISUAL kedua gambar itu "fine-fine aja" buat mata manusia.
+
+**Root cause (udah diverifikasi liat match visualization asli, bukan dugaan)**: dibikin skrip debug buat nyimpen match inlier (ijo) vs outlier (merah) terpisah (`pair_1_2_inliers_green.jpg` / `pair_1_2_outliers_red.jpg`, scratchpad session). Hasilnya: KEDUA grup (yang dipertahanin RANSAC maupun yang dibuang) nunjukin korespondensi yang SECARA VISUAL BENER — gak ada garis nyilang/ngaco yang biasanya nandain mismatch. Masalahnya: scene-nya (farmland rata, low-texture) cuma ngasih SIFT keypoint yang KEBANYAKAN numpuk di SATU fitur kontras-tinggi doang (jalan/road, bentuknya garis tipis memanjang) — sisa frame (lahan kiri-kanan) nyaris gak ngasih keypoint. Set match yang HAMPIR COLLINEAR kayak gini itu secara matematis "poorly-conditioned" buat `estimateAffinePartial2D`/homography fitting — noise kecil (jalan gak benar-benar rata, parallax dikit, permukaan gak benar-benar planar) bikin RANSAC misahin match yang SAMA-SAMA BENER jadi inlier/outlier agak ARBITRARY, nurunin ratio walau registrasinya sendiri gak masalah.
+
+**Beda dari masalah GoPro/lens-distortion (#2 di atas)**: itu soal MODEL transform-nya (similarity transform assumption rusak kena distorsi lensa). Ini soal GEOMETRI SEBARAN titik match-nya (collinear/clustered bikin RANSAC poorly-conditioned) — independen dari kamera/lensa apapun, bisa kejadian di kamera manapun kalo scene-nya kebetulan low-texture/didominasi 1 fitur linear.
+
+**Dampak saat ini**: kecil/sementara — di dataset ini cuma mempengaruhi 2 frame paling awal (abis takeoff, sebelum masuk area bertekstur), terus "pulih sendiri" begitu scene lebih variatif. TAPI berpotensi muncul lagi di kondisi serupa (area urban dgn 1 jalan dominan, area gurun/lahan kosong, dll).
+
+**To-do (belum di-scope detail, belum dimulai)**: pertimbangin nambah signal KEDUA selain `inlier_ratio` doang — misal spatial spread/variance dari titik match (udah ada preseden: `__check_spatial_cross_validation` yang DIHAPUS sebelumnya itu beda tujuan/udah superseded, tapi konsepnya bisa dipinjem ulang buat kasus ini secara spesifik), biar gate bisa BEDAIN "ratio rendah karena mismatch beneran" vs "ratio rendah karena match-nya collinear tapi sebenernya valid". Detail investigasi penuh: `docs/explainer/COMBINER_FUNCTIONS_REFERENCE.md` (liat diskusi sesi soal pair `1↔2`).
+
 ---
 
 ## 🌐 To-Do Terkait, Beda Scope: Integrasi ke GCS (`TASK9_VERIFICATION_FINDINGS.md §6` item 3)
@@ -83,12 +97,15 @@ Urutan komitmen user, bukan cuma saran aku — dicatat verbatim biar gak keubah 
    - **UDP vs TCP** — BUKAN cuma buat image receiver di sisi GCS, tapi JUGA sisi SENDER di UAV lapangan (dua sisi socket-nya, bukan cuma satu arah kayak yang kecatet sebelumnya).
 3. **Lens undistortion (cross-camera)** dan **keyframe re-anchoring** — TETEP di-track (lihat di atas), tapi BUKAN fokus langsung berikutnya per rencana ini; kerjain kalo ada slot terpisah.
 
+> **Status update (2026-10-03)**: Langkah 1 di atas (`GPS_DISTANCE_THRESHOLD_M` + attitude drift gate) SELESAI, hasil disukai user — liat checklist RESOLVED di atas. Langkah 2 (integrasi GCS) jadi fokus berikutnya, BELUM dimulai.
+
 ---
 
 ## Ringkasan Prioritas (referensi umum, di bawah rencana eksplisit di atas)
 
-1. **Overlap density** (`GPS_DISTANCE_THRESHOLD_M`) — lagi dikerjain sekarang.
-2. **Integrasi GCS** (engine sync + queueing/batching + UDP-vs-TCP dua arah) — fokus berikutnya per rencana user di atas.
+1. ~~**Overlap density** (`GPS_DISTANCE_THRESHOLD_M`)~~ — DONE, lihat RESOLVED.
+2. **Integrasi GCS** (engine sync + queueing/batching + UDP-vs-TCP dua arah) — fokus SEKARANG per rencana user.
 3. **Lens undistortion** (cross-camera portability) — penting buat "plug-and-play" lintas kamera, tapi gak diprioritasin duluan dari integrasi GCS per rencana user.
-4. Bug kecil `dataMatrix[0]` — low priority, fix kapan aja pas sempet.
-5. Keyframe re-anchoring — jangka panjang, terpisah dari isu ini semua.
+4. **Match-distribution/conditioning check buat `inlier_ratio`** — medium priority, ketemu organik pas tes overlap density, belum di-scope.
+5. Bug kecil `dataMatrix[0]` — low priority, fix kapan aja pas sempet.
+6. Keyframe re-anchoring — jangka panjang, tapi relevansinya naik abis temuan attitude-drift-gate "stall" (lihat RESOLVED + MASIH TERBUKA di atas).

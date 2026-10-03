@@ -20,14 +20,53 @@ Yang ditambahin sekarang:
 
 | Variabel | Nilai default | Fungsi |
 |---|---|---|
-| `self._mpp_calibration_samples` | `[]` | Nampung sample buat ngitung skala pixel↔meter (lihat §4). |
+| `self._mpp_calibration_samples` | `[]` | Nampung sample buat ngitung skala pixel↔meter (lihat §5). |
 | `self._meters_per_pixel` | `None` | Skala pixel↔meter yang udah kekalibrasi. `None` = belum kalibrasi, sanity check & fallback OTOMATIS DI-SKIP sampe ini keisi. |
 | `self._consecutive_rejections` | `0` | Counter — berapa kali REJECT BERUNTUN (reset ke 0 tiap ada yang sukses). |
-| `self.MAX_BRIDGE_GAP` | `3` | Batas: cuma boleh "bridging" (lihat §5) kalo reject beruntun ≤ angka ini. Lewat itu, freeze total (gak diapa-apain). |
+| `self.MAX_BRIDGE_GAP` | `3` | Batas: cuma boleh "bridging" (lihat §7) kalo reject beruntun ≤ angka ini. Lewat itu, freeze total (gak diapa-apain). |
+| `self.last_acc_index` | `0` | Index frame TERAKHIR yang BENERAN diterima (lolos SEMUA gate). Dipake sama `__check_attitude_drift` (§3) sebagai REFERENSI pembanding — BUKAN `index-1`. Di-update jadi `index` cuma di jalur sukses (`combine()`, abis semua gate lolos). |
 
 ---
 
-## 3. `__check_gps_translation_sanity(self, index, H_rel_3x3, image_shape)` — baris 282
+## 3. `__check_attitude_drift(self, index)` — baris 312
+
+**Fungsi**: Cek apakah roll/pitch frame SEKARANG (`index`) udah "ngelantur" terlalu jauh dari roll/pitch frame TERAKHIR YANG DITERIMA (`self.last_acc_index`). Beda dari §4 (GPS translation sanity) yang cuma bandingin `index-1` vs `index` (PASANGAN langsung) — gate ini bandingin ke REFERENSI YANG STABIL (frame diterima terakhir), jadi bisa nangkep DRIFT BERTAHAP yang gak keliatan kalo cuma dicek pasangan-per-pasangan.
+
+**Kenapa ini perlu, padahal udah ada GPS sanity check**: GPS sanity check (§4) nguji KONSISTENSI GERAKAN antara dua frame BERSEBELAHAN — kalo drone lagi manuver (miring terus-menerus), DUA frame manuver yang bersebelahan bisa aja "konsisten" satu sama lain (gerakannya sama-sama nge-drift), tapi KEDUANYA udah sama-sama jauh dari sudut pandang frame normal terakhir. GPS sanity check gak nangkep ini karena dia gak pernah lihat lebih jauh dari `index-1`. Attitude drift gate ini nutup celah itu dengan bandingin ke titik referensi yang GAK IKUT BERGESER tiap frame (`last_acc_index`, cuma pindah pas ada yang BENERAN diterima).
+
+**Cara kerja step-by-step**:
+1. Ambil `roll`/`pitch` frame `index` dan frame `self.last_acc_index` dari `dataMatrix` (kolom 5 = roll, kolom 4 = pitch).
+2. Hitung `roll_delta` dan `pitch_delta` (nilai absolut selisih).
+3. `drift = max(roll_delta, pitch_delta)` — ambil yang PALING BESAR, bukan rata-rata, biar satu sumbu yang ngelantur parah gak "ketutupan" sama sumbu lain yang masih normal.
+4. Kalo `drift > ATTITUDE_DRIFT_TOLERANCE_DEG` → `False` (tolak).
+
+**Dipanggil di**: `combine()`, PALING AWAL — SEBELUM deteksi fitur SIFT apapun dijalankan (baris 339). Kalo gagal di sini, SIFT gak usah dijalanin sama sekali (hemat komputasi, dan emang gak ada gunanya coba match SIFT ke frame yang attitude-nya aja udah dianggap gak valid).
+
+**⚠️ Bug yang pernah kejadian (udah diperbaiki)**: versi pertama nulis `self.last_acc_index = 0` di jalur sukses (harusnya `self.last_acc_index = index`). Efeknya: referensi gak PERNAH pindah dari frame 0, selamanya — gate ini jadi bandingin "sekarang vs attitude frame paling awal" terus-terusan, bukan "sekarang vs terakhir diterima". Ketangkep pas code review sebelum dites.
+
+**Catatan rentang tuning**: `ATTITUDE_DRIFT_TOLERANCE_DEG=7.5` itu nilai yang dites dan hasilnya disukai user. Kalo mau di-tuning ulang, rentang `7°-9°` aman buat dicoba (di atas noise-corridor normal, di bawah drift zona manuver) — INGET, angka di luar `7.5` bakal geser GATE RESULT-nya dikit (misalnya di `8.1°`, frame 47/48/53 yang di tabel bawah ini DITOLAK di `7.5°` bakal LOLOS gate ini, walau mungkin masih ketolak di gate hilir/inlier ratio/GPS translation sanity).
+
+**Contoh perhitungan (angka REAL, hasil re-run dataset `output/uav_1/images`, `GPSDistanceFilter(threshold_m=2.0)`, `ATTITUDE_DRIFT_TOLERANCE_DEG=7.5`):**
+
+Frame 44 adalah frame NORMAL terakhir sebelum zona manuver — dari situ sampe akhir flight (index 56), **TIDAK ADA satupun frame lain yang lolos SEMUA gate**, jadi `last_acc_index` nyangkut di `44` buat SISA SELURUH data:
+
+```
+idx  last_acc  roll_cur  pitch_cur  roll_ref  pitch_ref  roll_Δ  pitch_Δ  drift   gate
+44        43     20.80       3.47     14.59       4.12    6.21     0.65    6.21   True   (diterima, last_acc_index -> 44)
+45        44     23.34       4.81     20.80       3.47    2.54     1.34    2.54   True   (lolos attitude, ketolak gate LAIN di hilir)
+46        44     24.93       7.86     20.80       3.47    4.13     4.39    4.39   True   (lolos attitude, ketolak inlier ratio 0.50)
+47        44     27.32      11.19     20.80       3.47    6.52     7.72    7.72  False   (DITOLAK gate ini -- 7.72° > 7.5°)
+48        44     27.34      11.11     20.80       3.47    6.54     7.64    7.64  False   (DITOLAK)
+49        44     22.58      20.58     20.80       3.47    1.78    17.11   17.11  False   (DITOLAK, jauh di atas tolerance)
+53        44     13.20       4.22     20.80       3.47    7.60     0.75    7.60  False   (DITOLAK -- ini yang di sesi SEBELUMNYA, pas bug last_acc_index=0 belum kefix, bablas lolos & numpuk kink)
+56        44     29.44       5.86     20.80       3.47    8.64     2.39    8.64  False   (DITOLAK)
+```
+
+**Temuan penting dari run ini**: gate ini SUKSES nangkep ketiga frame yang sebelumnya bikin "soft kink" (47, 49, 53) — semua ketolak duluan di sini, sebelum sempet nyampe SIFT/GPS check. TAPI efek sampingnya: setelah frame 44, gak ada SATU PUN frame (45-56) yang lolos SEMUA gate sampe akhir data — baik ketolak di attitude drift ini, inlier ratio, ATAU GPS translation sanity (yang juga ikut makin ketat karena referensinya tetep di 44, makin jauh makin numpuk error). Mosaic di run ini berhenti "beneran nempel" di frame 44, sisanya cuma di-bridge (geser posisi doang, `MAX_BRIDGE_GAP=3`) lalu freeze total abis itu. Ini trade-off yang perlu didiskusiin: gate-nya BENAR nolak frame yang salah, tapi belum ada mekanisme buat "pulih"/re-anchor begitu drone balik stabil lagi setelah manuver (lihat to-do keyframe re-anchoring).
+
+---
+
+## 4. `__check_gps_translation_sanity(self, index, H_rel_3x3, image_shape)` — baris 285
 
 **Fungsi**: Bandingin translasi (pergeseran) yang DIUKUR SIFT (dari `H_rel_3x3`, hasil matching gambar) VS translasi yang seharusnya SESUAI DATA GPS. Kalo bedanya kejauhan, transform itu DITOLAK (return `False`) — ini yang nyegah kink macam-macam kepasang ke mosaic.
 
@@ -44,7 +83,7 @@ Yang ditambahin sekarang:
 **GPS DIPOSISIKAN SEBAGAI REFERENSI** — bukan dikoreksi, bukan juga yang dikoreksi. GPS dipercaya sebagai "penggaris" (sinyal independen, gak ketipu tekstur repetitif kayak SIFT). SIFT itu yang DIUJI/DINILAI pake penggaris itu. Kalo SIFT nilainya gagal (bedanya kejauhan dari GPS):
 - Angka SIFT-nya **GAK DIPERBAIKI** jadi angka GPS (gak ada "koreksi" numerik apapun).
 - Yang kejadian: transform SIFT itu **DIBUANG TOTAL** (`return False` → `combine()` nge-skip frame ini, gak nempel ke mosaic sama sekali).
-- Kalo mau ADA yang ngisi kekosongan itu, baru `__bridge_or_freeze` (§6) bikin gerakan PENGGANTI dari GPS doang (`__simple_fallback_transform`, §5) — TAPI itu FUNGSI LAIN, dan itu juga cuma buat "majuin posisi", BUKAN buat nge-blend pixel gambar.
+- Kalo mau ADA yang ngisi kekosongan itu, baru `__bridge_or_freeze` (§7) bikin gerakan PENGGANTI dari GPS doang (`__simple_fallback_transform`, §6) — TAPI itu FUNGSI LAIN, dan itu juga cuma buat "majuin posisi", BUKAN buat nge-blend pixel gambar.
 
 Jadi ringkesnya: **GPS = wasit/pembanding. SIFT = yang diadili.** Kalo SIFT kalah, SIFT-nya dibuang (bukan dibetulin), bukan GPS yang diubah/disesuaikan ke SIFT.
 
@@ -79,7 +118,7 @@ Beda jauh antara dua kasus ini (`13.77px` vs `34.87px`, gap kosong di tengahnya)
 
 ---
 
-## 4. Blok Kalibrasi `meters_per_pixel` (inline di `combine()`, baris 402-417)
+## 5. Blok Kalibrasi `meters_per_pixel` (inline di `combine()`, baris 402-417)
 
 **Fungsi**: Nentuin skala "1 pixel di gambar = berapa meter di tanah" TANPA perlu tau spek kamera/altitude fisik (yang ternyata gak reliable — EXIF altitude itu MSL/ketinggian laut, bukan AGL/ketinggian dari tanah).
 
@@ -108,7 +147,7 @@ Abis ini, `self._meters_per_pixel` FREEZE di angka itu — sample ke-6 dst GAK N
 
 ---
 
-## 5. `__simple_fallback_transform(self, index)` — baris 207
+## 6. `__simple_fallback_transform(self, index)` — baris 207
 
 **Fungsi**: Bikin transform TRANSLATION-ONLY (gerak doang, gak ada rotasi) LANGSUNG dari data GPS — dipake SEBAGAI GANTI hasil SIFT, KHUSUS pas SIFT-nya lagi ditolak/gak dipercaya.
 
@@ -119,7 +158,7 @@ Abis ini, `self._meters_per_pixel` FREEZE di angka itu — sample ke-6 dst GAK N
 - Kalo posisi GPS `prev_pos`/`curr_pos` itu PERSIS `[0,0]` → dianggap "gak ada data telemetry", return `None` (JANGAN NGARANG gerakan dari data kosong).
   - ⚠️ **Catatan**: frame index 0 itu SELALU `[0,0]` by design (dia jadi titik origin koordinat lokal), BUKAN karena gak ada telemetry — jadi buat pair pertama (0→1), pengecekan ini bisa salah tangkep. Dampaknya kecil (belum ada apa-apa yang ketempel di mosaic di titik itu), tapi perlu diinget.
 
-**Dipanggil dari**: `__bridge_or_freeze` doang (§6).
+**Dipanggil dari**: `__bridge_or_freeze` doang (§7).
 
 **Contoh perhitungan (ilustrasi, pake `meters_per_pixel` real `0.357971`):**
 ```
@@ -143,7 +182,7 @@ Matrix ini LANGSUNG dipake buat majuin `H_global_prev` (lewat `__advance_global_
 
 ---
 
-## 6. `__bridge_or_freeze(self, index, image2_shape)` — baris 238
+## 7. `__bridge_or_freeze(self, index, image2_shape)` — baris 238
 
 **Fungsi**: Ini "otak" dari keputusan APA YANG TERJADI PAS SEBUAH FRAME DITOLAK. Dipanggil di SEMUA 5 titik reject di `combine()`.
 
@@ -151,19 +190,19 @@ Matrix ini LANGSUNG dipake buat majuin `H_global_prev` (lewat `__advance_global_
 ```
 counter reject += 1
 KALO counter <= MAX_BRIDGE_GAP (3):
-    coba bikin fallback transform dari GPS (§5)
+    coba bikin fallback transform dari GPS (§6)
     KALO berhasil: majuin posisi mosaic pake itu (TANPA nempel pixel)
 KALO counter udah lebih dari 3:
     diem aja, gak ngapa-ngapain (freeze)
 ```
 
-**Kenapa dibatasin (gak selalu "bridging")**: udah dicoba SELALU bridging (gak dibatasin) — hasilnya ghosting/blur nyebar ke MANA-MANA di mosaic, bahkan di area yang harusnya bersih. Ternyata SATU KALI PUN pake approksimasi translation-only ini udah nyisipin error kecil yang keliatan pas di-blend. Jadi dibatasin biar gak KEBABLASAN dipake terus-terusan, TAPI tetep ada buat nutup celah "posisi ke-freeze pas ada reject" (§7).
+**Kenapa dibatasin (gak selalu "bridging")**: udah dicoba SELALU bridging (gak dibatasin) — hasilnya ghosting/blur nyebar ke MANA-MANA di mosaic, bahkan di area yang harusnya bersih. Ternyata SATU KALI PUN pake approksimasi translation-only ini udah nyisipin error kecil yang keliatan pas di-blend. Jadi dibatasin biar gak KEBABLASAN dipake terus-terusan, TAPI tetep ada buat nutup celah "posisi ke-freeze pas ada reject" (§8).
 
 **Kenapa gak "SELALU freeze" aja (gak usah ada bridging sama sekali)**: kalo freeze total, tiap kali ada reject, frame BERIKUTNYA bakal "loncat" posisi (ke-chain dari titik 2-frame-sebelumnya, bukan yang seharusnya) — muncul sebagai patahan/staircase di mosaic. Bridging (dibatasin) itu jalan tengah.
 
 ---
 
-## 7. `__advance_global_position(self, H_rel_3x3, image2_shape, will_paint=True)` — baris 252
+## 8. `__advance_global_position(self, H_rel_3x3, image2_shape, will_paint=True)` — baris 252
 
 **Fungsi**: Nge-CHAIN posisi (`H_global_prev`) — ini fungsi INTI yang nentuin "sekarang mosaic udah nyampe posisi mana". Dipake DI DUA JALUR:
 - **Jalur sukses** (`will_paint=True`, default): abis semua gate lolos, majuin posisi DAN siapin buat nge-blend pixel beneran (`xMin/yMin/xMax/yMax` buat ukuran kanvas).
@@ -175,9 +214,12 @@ KALO counter udah lebih dari 3:
 
 ---
 
-## 8. Alur Lengkap `combine(index)` — Ringkasan Gate
+## 9. Alur Lengkap `combine(index)` — Ringkasan Gate
 
 ```
+0. Attitude drift check (roll/pitch index vs last_acc_index) -- PALING AWAL, SEBELUM SIFT apapun
+   └─ kalo drift > 7.5° → __bridge_or_freeze() → skip
+
 1. Deteksi fitur (SIFT) di image[index-1] vs image[index]
    └─ kalo GAK ADA fitur sama sekali → __bridge_or_freeze() → skip
 
@@ -196,20 +238,21 @@ KALO counter udah lebih dari 3:
 6. GPS sanity check (translasi SIFT vs translasi GPS)
    └─ kalo beda > 10m → __bridge_or_freeze() → skip
 
-7. SEMUA LOLOS → reset counter reject, __advance_global_position(will_paint=True)
+7. SEMUA LOLOS → reset counter reject, last_acc_index = index, __advance_global_position(will_paint=True)
    → warp + blend pixel beneran ke mosaic
 ```
 
 ---
 
-## 9. Tabel Parameter yang Bisa Di-Tuning (state sekarang)
+## 10. Tabel Parameter yang Bisa Di-Tuning (state sekarang)
 
 | Parameter | Lokasi | Nilai sekarang | Fungsi |
 |---|---|---|---|
+| `ATTITUDE_DRIFT_TOLERANCE_DEG` | `__check_attitude_drift` | `7.5`° (rentang aman buat tuning: `7°-9°`) | Toleransi selisih roll/pitch (yang terbesar dari keduanya) antara frame sekarang vs `last_acc_index`. |
 | Inlier ratio (accept gate) | `combine()` baris 391 | `0.6` | Minimum "kesepakatan" match SIFT biar dipercaya. |
 | Inlier ratio (eligibility kalibrasi) | `combine()` baris 405 | `0.7` | Minimum kesepakatan match buat BOLEH nentuin skala pixel↔meter (harus > gate accept). |
 | `TRANSLATION_TOLERANCE_M` | `__check_gps_translation_sanity` | `10.0` meter | Toleransi selisih translasi SIFT vs GPS. |
 | `MAX_BRIDGE_GAP` | `__init__` | `3` | Batas reject beruntun yang masih boleh "bridging". |
-| `GPSDistanceFilter(threshold_m=...)` | `service.py`, di luar `Combiner.py` | `3.0` meter | Jarak minimum antar frame biar diterima masuk PROSES STITCHING sama sekali (admission-level, beda dari semua gate di atas yang Combiner-level). |
+| `GPSDistanceFilter(threshold_m=...)` | `service.py`, di luar `Combiner.py` | `2.0` meter | Jarak minimum antar frame biar diterima masuk PROSES STITCHING sama sekali (admission-level, beda dari semua gate di atas yang Combiner-level). |
 
 Kalo mau tuning ulang salah satu, INGET: ubah SATU variabel per percobaan, jangan borongan — gampang ke-bingung nentuin efek mana yang dari perubahan mana (pengalaman langsung sesi ini 😅).
