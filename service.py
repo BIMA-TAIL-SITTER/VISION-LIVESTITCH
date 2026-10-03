@@ -59,7 +59,7 @@ class StitchingSession:
         self.observer = None
 
         # per session filters -- for multi uav configurations
-        self.gps_filter = GPSDistanceFilter()
+        self.gps_filter = GPSDistanceFilter(threshold_m=2.0)
         self.attitude_filter = AttitudeThresholdFilter()
         self.accepted_images: List[Path] = []
         self.accepted_metadata: List[Dict] = []

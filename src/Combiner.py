@@ -38,8 +38,17 @@ class Combiner:
         self.H_global_prev = np.eye(3, dtype=np.float32)
         self.H_rel_prev = None
 
+        # GPS translation sanity check parameters
+        # for MSL AGL calibration
+        self._mpp_calibration_samples = []
+        self._meters_per_pixel = None
+
         self.image_list = self.__preprocess_images(imageList_)
         self.result_image = self.image_list[0]
+
+        # bridge fallback
+        self._consecutive_rejections = 0
+        self.MAX_BRIDGE_GAP = 3
 
     # ------------------------------------------------------------------ #
     #  PRIVATE HELPERS                                                     #
@@ -195,26 +204,100 @@ class Combiner:
 
         return warped_result + warped_img2
 
+    def __simple_fallback_transform(self, index):
+        """
+        Translation-only H_rel from the GPS delta, used to bridge a SHORT run
+        of consecutive rejections (see MAX_BRIDGE_GAP) so the chain doesn't
+        freeze indefinitely. No rotation component -- kept deliberately simple.
+        """
+        # Get the previous and current GPS positions
+        prev_pos = self.dataMatrix[index - 1, 0:2]
+        curr_pos = self.dataMatrix[index, 0:2]
+        if np.all(prev_pos == 0) or np.all(curr_pos == 0):
+            print("⚠️  Warning: Invalid GPS data. Cannot compute fallback transform.")
+            return None
+        
+        # Convert GPS delta to pixel translation using meters per pixel
+        if self._meters_per_pixel is None:
+            print("⚠️  Warning: Meters per pixel not calibrated. Cannot compute fallback transform.")
+            return None
+        
+        delta_pos_m = curr_pos - prev_pos
+        translation_px = delta_pos_m / self._meters_per_pixel
+        translation_px[1] = -translation_px[1]  # Invert Y-axis for image coordinates
+
+        # Create a translation matrix
+        H_fallback = np.array([
+            [1, 0, translation_px[0]],
+            [0, 1, translation_px[1]],
+            [0, 0, 1]
+        ], dtype=np.float32)
+
+        return H_fallback
+
+    def __bridge_or_freeze(self, index, image2_shape):
+        """
+        Called on every rejection. Only bridges the chain (advances
+        H_global_prev via GPS translation, no paint) while the run of
+        consecutive rejections is short (<= MAX_BRIDGE_GAP); beyond that it
+        freezes (does nothing) rather than compounding approximations over
+        an uncertain, growing gap -- see docs/GPS_SANITY_CHECK_DEBUG_LOG.md.
+        """
+        self._consecutive_rejections += 1
+        if self._consecutive_rejections <= self.MAX_BRIDGE_GAP:
+            fallback = self.__simple_fallback_transform(index)
+            if fallback is not None:
+                self.__advance_global_position(fallback, image2_shape, will_paint=False)
+
+    def __advance_global_position(self, H_rel_3x3, image2_shape, will_paint=True):
+        """
+        Chain H_rel_3x3 onto H_global_prev and re-base the canvas origin.
+        Only called on the accepted-frame path -- rejected frames leave
+        H_global_prev untouched (frozen), matching the simpler pre-fallback
+        behavior. An earlier version kept the chain moving on rejected
+        frames via a GPS/yaw-derived approximate transform, but that
+        introduced small per-hop errors that compounded into visible
+        ghosting throughout the mosaic (see docs/GPS_SANITY_CHECK_DEBUG_LOG.md)
+        -- worse than the occasional position jump this simpler freeze can
+        cause after a long run of rejections.
+        """
+        self.H_rel_prev = H_rel_3x3
+        H_global_current = np.dot(self.H_global_prev, H_rel_3x3)
+        H_global_current = H_global_current / H_global_current[2, 2]
+
+        if not will_paint:
+            self.H_global_prev = H_global_current
+            return H_global_current, None, None, None, None
+
+        xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(
+            self.result_image.shape, image2_shape, None, H_global_current)
+        translation = np.float32([
+            [1, 0, -xMin],
+            [0, 1, -yMin],
+            [0, 0, 1]
+        ])
+        self.H_global_prev = np.dot(translation, H_global_current)
+        return H_global_current, xMin, yMin, xMax, yMax
+
     def __check_gps_translation_sanity(self, index, H_rel_3x3, image_shape):
         """
         Check if the estimated translation from H_rel_3x3 is consistent with the GPS translation in dataMatrix.
         If the difference is too large, return False. Otherwise, return True.
         """
-        FOV_deg = 122.0
-        altitude_m = self.dataMatrix[index, 2]
-        ground_width_m = 2 * altitude_m * np.tan(np.radians(FOV_deg / 2))
-        meters_per_pixel = ground_width_m / image_shape[1]
-        TRANSLATION_TOLERANCE_M = 4.5 # in meters
+        meters_per_pixel = self._meters_per_pixel
+        TRANSLATION_TOLERANCE_M = 10.0 # in meters
         tolerance_px = TRANSLATION_TOLERANCE_M / meters_per_pixel
 
-        # compute translation from the center of the image 
+        # compute translation from the center of the image
         h, w = image_shape[:2]
         center = np.array([w/2, h/2, 1.0])
         mapped_center = H_rel_3x3 @ center
+        mapped_center = mapped_center / mapped_center[2]  # normalize
 
         # translation_estimated_px = H_rel_3x3[0:2, 2]
         translation_estimated_px = mapped_center[:2] - np.array([w/2, h/2])
         translation_actual_m = self.dataMatrix[index, 0:2] - self.dataMatrix[index-1, 0:2]
+        translation_actual_m[1] = -translation_actual_m[1]
         translation_actual_px = translation_actual_m / meters_per_pixel
 
         translation_error_px = np.linalg.norm(translation_estimated_px - translation_actual_px)
@@ -223,6 +306,8 @@ class Combiner:
             return False
         return True
     
+    
+
     # ------------------------------------------------------------------ #
     #  PUBLIC FUNCTIONs                                                  #
     # ------------------------------------------------------------------ #
@@ -230,8 +315,8 @@ class Combiner:
     def combine(self, index):
         """Stitch image[index] into the running mosaic."""
 
-        # Attempt to combine one pair of images at each step. Assume the order in which the images are given is the best order.
-        # This intorduces drift!
+        # Attempt to combine one pair of images at each step. Assume the
+        # order in which the images are given is the best order.
         image1 = self.image_list[index-1].copy()
         image2 = self.image_list[index].copy()
 
@@ -277,6 +362,7 @@ class Combiner:
         # check if descriptors were found
         if descriptors1 is None or descriptors2 is None:
             print(f"⚠️  Warning: No features detected in image pair {index-1}-{index}. Skipping.")
+            self.__bridge_or_freeze(index, image2.shape)
             return self.result_image
 
         # --- feature matching --- #
@@ -287,23 +373,26 @@ class Combiner:
         print(f"⏱️  Feature Matching: {elapsed_match:.3f}s ({len(matches)} good matches)")
         if len(matches) < 4:
             print(f"⚠️  Warning: Only {len(matches)} matches found for image pair {index-1}-{index}. Need at least 4. Skipping.")
+            self.__bridge_or_freeze(index, image2.shape)
             return self.result_image
         
         # --- transformation estimation --- #
         t = time.time()
-        A_rel, H_rel,inlier_mask, _ , _ = self.__estimate_transform(kp1, kp2, matches)
+        A_rel, H_rel, inlier_mask, _, _ = self.__estimate_transform(kp1, kp2, matches)
         elapsed_tf = time.time() - t
         self.timing_stats['transformation'] += elapsed_tf
         print(f"⏱️  Transformation Estimation: {elapsed_tf:.3f}s")
 
         if A_rel is None and H_rel is None:
             print(f"⚠️  Warning: Could not compute transformation for image pair {index-1}-{index}. Skipping.")
+            self.__bridge_or_freeze(index, image2.shape)
             return self.result_image
 
         # inlier ratio check
         inlier_ratio = inlier_mask.sum() / len(matches) if inlier_mask is not None else 0.0
         if inlier_ratio < 0.6:
             print(f"⚠️  Warning: Low inlier ratio ({inlier_ratio:.2f}) for image pair {index-1}-{index}. Skipping.")
+            self.__bridge_or_freeze(index, image2.shape)
             return self.result_image
 
         # --- chained / accumulated homography ---
@@ -312,23 +401,36 @@ class Combiner:
         else:
             H_rel_3x3 = H_rel
 
-        # sanity check: if corresponding translation of H rel 3x3 compared to 
+        if self._meters_per_pixel is None:
+            gps_delta_m = self.dataMatrix[index, 0:2] - self.dataMatrix[index-1, 0:2]
+            gps_dist_m = np.linalg.norm(gps_delta_m)
+            if inlier_ratio > 0.70 and gps_dist_m > 2.0:
+                # center-anchor translation, same like gps sanity check
+                h, w = image2.shape[:2]
+                center = np.array([w/2, h/2, 1.0])
+                mapped_center = H_rel_3x3 @ center
+                mapped_center = mapped_center / mapped_center[2]  # normalize
+                est_px = mapped_center[:2] - np.array([w/2, h/2])
+                est_dist_px = np.linalg.norm(est_px)
+                sample_scale = est_dist_px / gps_dist_m
+                self._mpp_calibration_samples.append(sample_scale)
+                if len(self._mpp_calibration_samples) >= 5:
+                    self._meters_per_pixel = 1.0 / np.median(self._mpp_calibration_samples)
+                    print(f"✅  Meters per pixel calibrated: {self._meters_per_pixel:.6f} m/px")
+
+        # sanity check: if corresponding translation of H rel 3x3 compared to
         # dataMatrix[index, 0:2] - dataMatrix[index-1, 0:2] is too large, skip this image
-        if not self.__check_gps_translation_sanity(index, H_rel_3x3, image2.shape):
-            return self.result_image 
-
-        self.H_rel_prev = H_rel_3x3
-
-        H_global_current = np.dot(self.H_global_prev, H_rel_3x3)
-
-        # normalized scale
-        H_global_current = H_global_current / H_global_current[2, 2]
+        if self._meters_per_pixel is not None:
+            if not self.__check_gps_translation_sanity(index, H_rel_3x3, image2.shape):
+                self.__bridge_or_freeze(index, image2.shape)
+                return self.result_image
 
         # --- end of transformation estimation --- #
+        self._consecutive_rejections = 0
 
         # --- warping --- #
         t = time.time()
-        xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(self.result_image.shape, image2.shape, None, H_global_current)
+        H_global_current, xMin, yMin, xMax, yMax = self.__advance_global_position(H_rel_3x3, image2.shape)
         warped_result, warped_image2 = self._warp_images(self.result_image, image2, None, H_global_current, xMin, yMin, xMax, yMax)
         elapsed_warp = time.time() - t
         self.timing_stats['warping'] += elapsed_warp
@@ -347,13 +449,7 @@ class Combiner:
         cv2.imwrite(inter_out_path, self.result_image)
         print(f"Intermediate result saved: {inter_out_path}")
 
-        # update global homography for next iteration
-        translation = np.float32([
-            [1, 0, -xMin],
-            [0, 1, -yMin],
-            [0, 0, 1]
-        ])
-        self.H_global_prev = np.dot(translation, H_global_current)
+        # H_global_prev already advanced inside __advance_global_position() above
 
         # --- visualize matches --- #
         match_drawing = cv2.drawMatches(
