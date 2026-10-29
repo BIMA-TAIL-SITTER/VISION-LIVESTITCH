@@ -1,0 +1,18 @@
+{
+  "mission_id": "replay01",
+  "bind_host": "127.0.0.1",
+  "output_dir": "runs",
+  "queue_size": 4,
+  "max_queue_age_s": 10,
+  "allow_simulation": true,
+  "engine": {
+    "working_width": 960,
+    "require_attitude": false,
+    "require_calibration": false,
+    "model": "similarity"
+  },
+  "uavs": [
+    {"uav_id": "UAV1", "port": 5600, "camera_id": "camera1"},
+    {"uav_id": "UAV2", "port": 5610, "camera_id": "camera2"}
+  ]
+}

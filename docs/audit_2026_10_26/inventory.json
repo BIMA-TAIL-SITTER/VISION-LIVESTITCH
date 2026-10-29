@@ -1,0 +1,1382 @@
+[
+  {
+    "file": "receiver_socket.py",
+    "lines": 102,
+    "sha256": "ee2665d5298a7c8bfdcb56a47e630d5b2c9842ba16d8785a95f777139ad47d3c",
+    "syntax": "OK",
+    "symbols": [
+      "handle_uavs_connections:25",
+      "main:72"
+    ]
+  },
+  {
+    "file": "run_stitch_dataset.py",
+    "lines": 163,
+    "sha256": "45c12d4678520e3cdb3c557a9344ee2fd616d029a19abe29ecb43484a8a7e01d",
+    "syntax": "OK",
+    "symbols": [
+      "parse_args:40",
+      "main:73"
+    ]
+  },
+  {
+    "file": "sender_gcs.py",
+    "lines": 315,
+    "sha256": "225084a09d42844bc808ccd1d875aea2d9d8629b4677f0ef76600271bdea3623",
+    "syntax": "OK",
+    "symbols": [
+      "ImageSenderSocket:30",
+      "get_image_files:164",
+      "main:206",
+      "__init__:33",
+      "_connect:48",
+      "send_image:62",
+      "send_batch:91",
+      "close:157"
+    ]
+  },
+  {
+    "file": "sender_socket_raspi.py",
+    "lines": 64,
+    "sha256": "864da64a8723848e748f8eca52bf7e75a7d88fadae8bb52c7c30939e0732aacc",
+    "syntax": "OK",
+    "symbols": [
+      "main:10"
+    ]
+  },
+  {
+    "file": "sender_socket_sim.py",
+    "lines": 98,
+    "sha256": "7ea961a4b8b48c9b053b1def779a1960d6be8e8bdbaf637cfa1a44cc209f8e4d",
+    "syntax": "OK",
+    "symbols": [
+      "send_image:9",
+      "main:19"
+    ]
+  },
+  {
+    "file": "service.py",
+    "lines": 540,
+    "sha256": "e02e85546ea6398011b8b4ddf01e95446fae9704ab2f0504c9e1fd0902e86cff",
+    "syntax": "OK",
+    "symbols": [
+      "StitchConfig:28",
+      "StitchingSession:35",
+      "SessionFolderHandler:62",
+      "start_folder_monitoring:165",
+      "stop_folder_monitoring:189",
+      "discover_existing_sessions:199",
+      "run_stitching:238",
+      "lifespan:330",
+      "root:353",
+      "list_sessions:362",
+      "create_session:378",
+      "toggle_monitoring:398",
+      "toggle_auto_stitch:414",
+      "upload_image:428",
+      "trigger_stitch:453",
+      "get_result_image:467",
+      "list_intermediate_results:485",
+      "get_session_status:503",
+      "websocket_endpoint:520",
+      "__init__:36",
+      "_count_images:54",
+      "__init__:63",
+      "_should_call:70",
+      "_wait_until_stable:79",
+      "on_created:92",
+      "_process_new_file:119",
+      "_notify_clients:148"
+    ]
+  },
+  {
+    "file": "tes.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "test_extract_gps.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "core_gmf/image_corrector.py",
+    "lines": 259,
+    "sha256": "763f4000bcd05aaaa2ee112bb35b05ff8a23a99db2fe170147cc2165d9b01b4e",
+    "syntax": "OK",
+    "symbols": [
+      "ImageCorrector:8",
+      "__init__:15",
+      "get_homography:36",
+      "get_non_neg:121",
+      "get_position:186",
+      "get_translation:237"
+    ]
+  },
+  {
+    "file": "core_gmf/image_join.py",
+    "lines": 242,
+    "sha256": "528b223bb786d6b4fe7e4ad132ea7abdac10e227fd0468e17439f74ee04f150e",
+    "syntax": "OK",
+    "symbols": [
+      "ImageJoiner:11",
+      "__init__:14",
+      "convert_to_lists:19",
+      "join_image:28",
+      "ref_center_image:49",
+      "ref_center_group:92",
+      "seq_group:146",
+      "seq_image:178",
+      "update_shape:204"
+    ]
+  },
+  {
+    "file": "core_gmf/image_join2.py",
+    "lines": 235,
+    "sha256": "feec839c91bbb232b837bb218ee60d24709522945645658da7685a8c3bdcf6ee",
+    "syntax": "OK",
+    "symbols": [
+      "ImageJoiner:10",
+      "__init__:13",
+      "join_image:18",
+      "ref_center_image:50",
+      "ref_center_group:85",
+      "seq_group:121",
+      "seq_image:143",
+      "update_shape:158"
+    ]
+  },
+  {
+    "file": "core_gmf/image_registration.py",
+    "lines": 243,
+    "sha256": "f3d53ebacd32bfff7fc00ea3aadd5fca440dfa7f417d1590d6320562e317d54d",
+    "syntax": "OK",
+    "symbols": [
+      "Image:13",
+      "ImageRegistration:80",
+      "__init__:17",
+      "find_pdf:33",
+      "assign:42",
+      "update:55",
+      "update_channel:68",
+      "__init__:87",
+      "load_img:102",
+      "run_map:133",
+      "worker:181",
+      "get_kp:203"
+    ]
+  },
+  {
+    "file": "live_stitcher/canvas.py",
+    "lines": 553,
+    "sha256": "4efbbe26f90f24a30bfd4b05a5773d6a122f18c23956412657613b76e09622c2",
+    "syntax": "OK",
+    "symbols": [
+      "IncrementalCanvas:24",
+      "__init__:37",
+      "_get_translation_matrix:60",
+      "initialize:67",
+      "add_image:87",
+      "_compensate_exposure:217",
+      "_multiband_blend_roi:265",
+      "_laplacian_blend:346",
+      "_feather_blend_roi:422",
+      "_expand_canvas:473",
+      "get_mosaic:507",
+      "frame_count:542",
+      "reset:545"
+    ]
+  },
+  {
+    "file": "live_stitcher/config.py",
+    "lines": 69,
+    "sha256": "1610585d350d94595a8f23e9383e369f90a597b3f5678622b6d02eac51eb62a9",
+    "syntax": "OK",
+    "symbols": [
+      "StitchConfig:9",
+      "from_dict:61",
+      "to_dict:67"
+    ]
+  },
+  {
+    "file": "live_stitcher/feature_engine.py",
+    "lines": 114,
+    "sha256": "534667c0ef74ed9ca36954e854c3809496e764a0c15237a7bbc27dd6271768b8",
+    "syntax": "OK",
+    "symbols": [
+      "FeatureEngine:10",
+      "__init__:13",
+      "detect:30",
+      "match:55",
+      "find_best_match_in_cache:75",
+      "add_to_cache:104",
+      "clear_cache:112"
+    ]
+  },
+  {
+    "file": "live_stitcher/gps_utils.py",
+    "lines": 157,
+    "sha256": "d6fbe24391ceabf463f1854522fb9c88d5dcb707b51982dbe6df5bfd1339bf62",
+    "syntax": "OK",
+    "symbols": [
+      "_convert_to_degrees:15",
+      "extract_gps_exif:28",
+      "haversine_m:80",
+      "gps_to_local_meters:106",
+      "estimate_pixel_offset:131"
+    ]
+  },
+  {
+    "file": "live_stitcher/heading_corrector.py",
+    "lines": 198,
+    "sha256": "6e642173d757e6eea3bbb96b8c313b38cc12f59c7e763d9d1747f659475c5d1a",
+    "syntax": "OK",
+    "symbols": [
+      "_haversine_m:26",
+      "HeadingCorrector:37",
+      "__init__:51",
+      "compute_heading:66",
+      "update_and_get_correction:93",
+      "correct_image:151",
+      "reset:185",
+      "reference_heading:193",
+      "current_heading:197"
+    ]
+  },
+  {
+    "file": "live_stitcher/main.py",
+    "lines": 459,
+    "sha256": "7902c7a72d6d74f0b934df8dfcd1b8e14697311ba6884a38194782b93e40f840",
+    "syntax": "OK",
+    "symbols": [
+      "setup_logging:40",
+      "get_image_files:56",
+      "run_batch:80",
+      "run_simulate:145",
+      "run_live:216",
+      "parse_args:300",
+      "main:421",
+      "stitch_consumer:250"
+    ]
+  },
+  {
+    "file": "live_stitcher/receiver.py",
+    "lines": 259,
+    "sha256": "d13886a42bc14d39611da77560cb8dfff07c218b26b69cb3e90fae54159b30ad",
+    "syntax": "OK",
+    "symbols": [
+      "ReceivedFrame:38",
+      "ImageReceiver:48",
+      "run_receiver_thread:238",
+      "__init__:61",
+      "_handle_client:94",
+      "start:199",
+      "stop:216",
+      "stats:225"
+    ]
+  },
+  {
+    "file": "live_stitcher/redundancy_filter.py",
+    "lines": 65,
+    "sha256": "3ba336a3202c44af4054238dd6a21eda8d783012951e93ee1c970a983965fdac",
+    "syntax": "OK",
+    "symbols": [
+      "GPSRedundancyFilter:7",
+      "__init__:15",
+      "should_accept:21",
+      "stats:49",
+      "last_position:58",
+      "reset:61"
+    ]
+  },
+  {
+    "file": "live_stitcher/registrator.py",
+    "lines": 191,
+    "sha256": "216681ef69b5d36d637eb3e08e3d7a893eb907e6835e33fd0b960b69e6a7a59b",
+    "syntax": "OK",
+    "symbols": [
+      "Registrator:12",
+      "__init__:21",
+      "estimate_transform:28",
+      "predict_overlap_roi:104",
+      "compute_canvas_bounds:170"
+    ]
+  },
+  {
+    "file": "live_stitcher/stitcher.py",
+    "lines": 518,
+    "sha256": "db2427b46dd222df6eeae1cab75948761f9112e9f294754ec4ad9d96de66bf27",
+    "syntax": "OK",
+    "symbols": [
+      "FrameStats:50",
+      "SessionStats:73",
+      "LiveStitcher:85",
+      "__init__:105",
+      "process_frame:160",
+      "process_file:433",
+      "get_mosaic:464",
+      "save_mosaic:472",
+      "get_stats:487",
+      "reset:504"
+    ]
+  },
+  {
+    "file": "live_stitcher/__init__.py",
+    "lines": 9,
+    "sha256": "f378bd54e1f589f5dfe7eb31d6b3c8ee3e211ac0c704da4df922b37bd8e1bc4e",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "main/blending.py",
+    "lines": 313,
+    "sha256": "0dbaa7387d56f2bd174f451b974b1c0e131aeb835f234299468703d520f4ec23",
+    "syntax": "OK",
+    "symbols": [
+      "PyramidBlender:6",
+      "simpleBlender:187",
+      "hybridBlender:198",
+      "AdaptiveWeightedFusion:225",
+      "incrementalFusion:264",
+      "compensate_exposure:307",
+      "gaussian_pyramid:9",
+      "laplacian_pyramid:26",
+      "blend_pyramids:39",
+      "reconstruct:53",
+      "create_blend_mask:69",
+      "blend_images_lowres:78",
+      "blend_images_roi:101",
+      "blend_images:133",
+      "feather_blend:189",
+      "hybrid_blend:200",
+      "generate_weight_map:227",
+      "adaptive_weight_map:242",
+      "__init__:265",
+      "add_image:273",
+      "get_result:295"
+    ]
+  },
+  {
+    "file": "main/Combiner2.py",
+    "lines": 255,
+    "sha256": "0c8fe158f4b3b25e63306a3d4aa2683f0b20ae09abb962797020e33de4385e49",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:15",
+      "__init__:16",
+      "createMosaic:63",
+      "combine:74",
+      "print_timing_summary:230"
+    ]
+  },
+  {
+    "file": "main/geometry.py",
+    "lines": 55,
+    "sha256": "075a3a54686abe32ce72a8dc36ce2079285e409affe7a06abb5f5d39df6e54d1",
+    "syntax": "OK",
+    "symbols": [
+      "computeUnRotMatrix:5",
+      "warpPerspectiveWithPadding:36"
+    ]
+  },
+  {
+    "file": "main/ImageMosaic.py",
+    "lines": 90,
+    "sha256": "691ec8092d58f29efcf6768657f2f868b4b4260c446586b70fe636134d9d3856",
+    "syntax": "OK",
+    "symbols": [
+      "main:25"
+    ]
+  },
+  {
+    "file": "main/utilities.py",
+    "lines": 231,
+    "sha256": "c3300a09a4cda6ab9a1181df847a51ec6d2bcd4ecf7ec5a2d447c345974e223b",
+    "syntax": "OK",
+    "symbols": [
+      "extract_gps_data_PIL:10",
+      "extract_gps_data:65",
+      "extract_gps_data_tuple:102",
+      "extract_gps_data_dict:109",
+      "importData:132",
+      "display:172",
+      "drawMatches:186"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/config.py",
+    "lines": 60,
+    "sha256": "700831e2e85ea96a177dd4e054fb7778f4d321aeb819503a15097598de0fa385",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "PROGRAM-NOVA/exif_injector.py",
+    "lines": 450,
+    "sha256": "ed80c30d710efb4f7c4e2d38f510bed0995a8a9fb99fb7c18a90c7931f2ea030",
+    "syntax": "OK",
+    "symbols": [
+      "dd_to_dms_rational:65",
+      "to_rational:74",
+      "inject_exif_to_file:78",
+      "read_exif_gps:198",
+      "LiveGPS:234",
+      "mode_watch:304",
+      "mode_batch:351",
+      "mode_single:374",
+      "parse_args:388",
+      "main:411",
+      "__init__:237",
+      "start:247",
+      "get:250",
+      "_run:254",
+      "rational_to_float:207",
+      "dms_to_dd:210",
+      "DummyGPS:420",
+      "get:421"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/imu_monitor.py",
+    "lines": 366,
+    "sha256": "16fa60301a2988ff9036bef1d3d20ed9781dcc28a1681e770ce5ee2a8a0ac84c",
+    "syntax": "OK",
+    "symbols": [
+      "AttitudeState:65",
+      "MAVLinkReader:131",
+      "TelemetrySender:232",
+      "display_loop:261",
+      "parse_args:288",
+      "main:307",
+      "__init__:68",
+      "update:81",
+      "to_dict:98",
+      "status_line:117",
+      "__init__:137",
+      "run:145",
+      "_request_streams:214",
+      "__init__:238",
+      "run:247"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/od_simulator.py",
+    "lines": 244,
+    "sha256": "fe3f6554ca20f57b8be8e7e0ff0d7504d49e2ed0ce04c033f8d203090f0b1148",
+    "syntax": "OK",
+    "symbols": [
+      "interpolate_position:63",
+      "generate_detections:82",
+      "build_packet:140",
+      "parse_args:155",
+      "main:170"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/photo_capture.py",
+    "lines": 623,
+    "sha256": "bf05a49c0d8a7d146d10b354927a4f4ddf2b19c5aa8d4081d35b9e3ef91254c9",
+    "syntax": "OK",
+    "symbols": [
+      "GPSState:65",
+      "MAVLinkThread:127",
+      "EXIFInjector:210",
+      "UDPSender:329",
+      "MetaSender:358",
+      "open_camera:394",
+      "grab_latest_frame:425",
+      "save_local:444",
+      "parse_args:455",
+      "main:478",
+      "__init__:67",
+      "update_gps:83",
+      "update_attitude:95",
+      "snapshot:105",
+      "__init__:133",
+      "run:140",
+      "_request_streams:195",
+      "_to_rational:218",
+      "_dd_to_dms_rational:226",
+      "inject:242",
+      "__init__:333",
+      "send:340",
+      "close:351",
+      "__init__:361",
+      "send:366",
+      "close:387"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/receiver.py",
+    "lines": 349,
+    "sha256": "d883dfb627c1d06be7213db725a2b11d1e8a61f437912681e1a72e9d3d9b48a4",
+    "syntax": "OK",
+    "symbols": [
+      "FrameReassembler:48",
+      "ImageReceiverThread:112",
+      "ODStore:181",
+      "ODReceiverThread:229",
+      "status_printer:268",
+      "parse_args:284",
+      "main:299",
+      "__init__:59",
+      "feed:65",
+      "cleanup_stale:96",
+      "__init__:118",
+      "run:131",
+      "_save_frame:156",
+      "stop:173",
+      "__init__:203",
+      "add:209",
+      "get_all:221",
+      "__init__:234",
+      "run:242",
+      "stop:260"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/run_ground.py",
+    "lines": 124,
+    "sha256": "76c4adff17bf50e3f842469aadf7364873f8fb7362a895c355fdc7ca1c8617c2",
+    "syntax": "OK",
+    "symbols": [
+      "parse_args:34",
+      "main:53"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/sender.py",
+    "lines": 413,
+    "sha256": "fb6dbbe3dab7d0687749eef04149c47f09fcd22d657d3bb747639da0b71cf6cf",
+    "syntax": "OK",
+    "symbols": [
+      "IMUMonitor:61",
+      "math_degrees:151",
+      "FrameSender:160",
+      "ODForwarder:204",
+      "parse_args:249",
+      "open_camera:274",
+      "encode_frame:302",
+      "main:311",
+      "__init__:68",
+      "run:89",
+      "attitude:143",
+      "connected:147",
+      "__init__:172",
+      "send:179",
+      "close:197",
+      "__init__:215",
+      "run:222"
+    ]
+  },
+  {
+    "file": "PROGRAM-NOVA/stitcher.py",
+    "lines": 594,
+    "sha256": "21e1b70dd3744b645a9ead0c08bf4f47d29e852169e147337ef5f7de9dae54ef",
+    "syntax": "OK",
+    "symbols": [
+      "haversine_m:74",
+      "GPSThresholdFilter:87",
+      "DetectionLoader:132",
+      "MosaicOverlay:161",
+      "StitchingEngine:263",
+      "SessionMonitor:335",
+      "parse_args:540",
+      "main:555",
+      "__init__:94",
+      "should_accept:101",
+      "stats:123",
+      "__init__:135",
+      "load_all:139",
+      "draw_detections:183",
+      "stitch:269",
+      "_stitch_nova:283",
+      "_stitch_opencv:315",
+      "__init__:341",
+      "scan_new_images:367",
+      "process_new_images:376",
+      "should_stitch:409",
+      "run_stitch:413",
+      "run_stitch_async:484",
+      "_extract_gps:489",
+      "print_summary:529"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/config.py",
+    "lines": 63,
+    "sha256": "58901efe2ff155d8a301a372662c312f6b994f186f5534c4c4ead792524bbee9",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/imu_monitor.py",
+    "lines": 400,
+    "sha256": "24c35c26feb04db8279f620ac807fd0e76feb505793e88610b12bd4b185d1a79",
+    "syntax": "OK",
+    "symbols": [
+      "AttitudeState:65",
+      "MAVLinkReader:165",
+      "TelemetrySender:266",
+      "display_loop:295",
+      "parse_args:322",
+      "main:341",
+      "__init__:68",
+      "update:91",
+      "update_gps:108",
+      "update_gps_fix:115",
+      "to_dict:121",
+      "status_line:149",
+      "__init__:171",
+      "run:179",
+      "_request_streams:248",
+      "__init__:272",
+      "run:281"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/imu_simulator.py",
+    "lines": 302,
+    "sha256": "46e131c7003e7cd5651746c64d8ce78fd7877ba111be90c3137f157e9421cb91",
+    "syntax": "OK",
+    "symbols": [
+      "SineAttitude:65",
+      "ScenarioAttitude:82",
+      "GPSTrack:120",
+      "parse_args:162",
+      "main:199",
+      "__init__:68",
+      "get:74",
+      "__init__:89",
+      "get:96",
+      "__init__:129",
+      "get:139"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/od_simulator.py",
+    "lines": 244,
+    "sha256": "ccb187abdcc68b509fff94e672681ac8032049d5b0f0421d52a22ff0e9862f1a",
+    "syntax": "OK",
+    "symbols": [
+      "interpolate_position:63",
+      "generate_detections:82",
+      "build_packet:140",
+      "parse_args:155",
+      "main:170"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/receiver.py",
+    "lines": 349,
+    "sha256": "15043d512db6ca68a0fa397c0c652a2a1adfcc997d3f5ccd3c604da260544acc",
+    "syntax": "OK",
+    "symbols": [
+      "FrameReassembler:48",
+      "ImageReceiverThread:112",
+      "ODStore:181",
+      "ODReceiverThread:229",
+      "status_printer:268",
+      "parse_args:284",
+      "main:299",
+      "__init__:59",
+      "feed:65",
+      "cleanup_stale:96",
+      "__init__:118",
+      "run:131",
+      "_save_frame:156",
+      "stop:173",
+      "__init__:203",
+      "add:209",
+      "get_all:221",
+      "__init__:234",
+      "run:242",
+      "stop:260"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/run_ground.py",
+    "lines": 124,
+    "sha256": "2bb8933407d6b48ed76a01376860a3dd5ca6c51a5dae3a3b11215c3275395c1b",
+    "syntax": "OK",
+    "symbols": [
+      "parse_args:34",
+      "main:53"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/sender.py",
+    "lines": 555,
+    "sha256": "5c287d3c8eb78a5e599fd7218733084d772477edda2ffc7760f85bd6b45625b4",
+    "syntax": "OK",
+    "symbols": [
+      "FlightDataMonitor:70",
+      "math_degrees:210",
+      "FrameSender:219",
+      "ODForwarder:263",
+      "parse_args:308",
+      "open_camera:341",
+      "encode_frame:369",
+      "_deg_to_dms_rational:378",
+      "embed_gps_exif:388",
+      "main:410",
+      "__init__:78",
+      "run:109",
+      "attitude:184",
+      "gps:189",
+      "connected:202",
+      "__init__:231",
+      "send:238",
+      "close:256",
+      "__init__:274",
+      "run:281"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER/stitcher.py",
+    "lines": 594,
+    "sha256": "888d80fcde8ec5b7e73010067d1c18edb263e76374f63b9e424036d4cb98b776",
+    "syntax": "OK",
+    "symbols": [
+      "haversine_m:74",
+      "GPSThresholdFilter:87",
+      "DetectionLoader:132",
+      "MosaicOverlay:161",
+      "StitchingEngine:263",
+      "SessionMonitor:335",
+      "parse_args:540",
+      "main:555",
+      "__init__:94",
+      "should_accept:101",
+      "stats:123",
+      "__init__:135",
+      "load_all:139",
+      "draw_detections:183",
+      "stitch:269",
+      "_stitch_external:283",
+      "_stitch_opencv:315",
+      "__init__:341",
+      "scan_new_images:367",
+      "process_new_images:376",
+      "should_stitch:409",
+      "run_stitch:413",
+      "run_stitch_async:484",
+      "_extract_gps:489",
+      "print_summary:529"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/config.py",
+    "lines": 76,
+    "sha256": "4b3736e21d14b3306dd5bf089e6e07578563e84b05e34dd07c6799af80c04d49",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/fc_router.py",
+    "lines": 147,
+    "sha256": "0cb99b33b9810b0e982acdafbb3cbd6c6d8532c11bb6b83b629efb3008ddbf79",
+    "syntax": "OK",
+    "symbols": [
+      "parse_out_target:59",
+      "parse_args:73",
+      "main:88"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/imu_monitor.py",
+    "lines": 400,
+    "sha256": "00326eb8b3c020401df1a5e4f46a5f5b8d2c6d9ce3bce5319ec140038b33bc08",
+    "syntax": "OK",
+    "symbols": [
+      "AttitudeState:65",
+      "MAVLinkReader:165",
+      "TelemetrySender:266",
+      "display_loop:295",
+      "parse_args:322",
+      "main:341",
+      "__init__:68",
+      "update:91",
+      "update_gps:108",
+      "update_gps_fix:115",
+      "to_dict:121",
+      "status_line:149",
+      "__init__:171",
+      "run:179",
+      "_request_streams:248",
+      "__init__:272",
+      "run:281"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/imu_simulator.py",
+    "lines": 302,
+    "sha256": "0dd5253ec47b2c9130c3c2d43e67caaeeb5798577483adc2444607d237c606cc",
+    "syntax": "OK",
+    "symbols": [
+      "SineAttitude:65",
+      "ScenarioAttitude:82",
+      "GPSTrack:120",
+      "parse_args:162",
+      "main:199",
+      "__init__:68",
+      "get:74",
+      "__init__:89",
+      "get:96",
+      "__init__:129",
+      "get:139"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/od_simulator.py",
+    "lines": 244,
+    "sha256": "ccb187abdcc68b509fff94e672681ac8032049d5b0f0421d52a22ff0e9862f1a",
+    "syntax": "OK",
+    "symbols": [
+      "interpolate_position:63",
+      "generate_detections:82",
+      "build_packet:140",
+      "parse_args:155",
+      "main:170"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/receiver.py",
+    "lines": 349,
+    "sha256": "812d31b22a1a0ad9587912d789970e233bc517e90b4183bf70b8a5a0633f4026",
+    "syntax": "OK",
+    "symbols": [
+      "FrameReassembler:48",
+      "ImageReceiverThread:112",
+      "ODStore:181",
+      "ODReceiverThread:229",
+      "status_printer:268",
+      "parse_args:284",
+      "main:299",
+      "__init__:59",
+      "feed:65",
+      "cleanup_stale:96",
+      "__init__:118",
+      "run:131",
+      "_save_frame:156",
+      "stop:173",
+      "__init__:203",
+      "add:209",
+      "get_all:221",
+      "__init__:234",
+      "run:242",
+      "stop:260"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/run_ground.py",
+    "lines": 124,
+    "sha256": "2bb8933407d6b48ed76a01376860a3dd5ca6c51a5dae3a3b11215c3275395c1b",
+    "syntax": "OK",
+    "symbols": [
+      "parse_args:34",
+      "main:53"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/sender.py",
+    "lines": 597,
+    "sha256": "5588537e816a4853b5cac7316ff23dc830e394e2d38c8efea754391e58992817",
+    "syntax": "OK",
+    "symbols": [
+      "FlightDataMonitor:70",
+      "math_degrees:210",
+      "FrameSender:219",
+      "ODForwarder:263",
+      "parse_args:308",
+      "open_camera:343",
+      "encode_frame:371",
+      "_deg_to_dms_rational:380",
+      "embed_flight_metadata_exif:390",
+      "main:438",
+      "__init__:78",
+      "run:109",
+      "attitude:184",
+      "gps:189",
+      "connected:202",
+      "__init__:231",
+      "send:238",
+      "close:256",
+      "__init__:274",
+      "run:281"
+    ]
+  },
+  {
+    "file": "PROGRAM_JUANG/PROGRAM-SENDER1/stitcher.py",
+    "lines": 697,
+    "sha256": "421ef70ff3a66915ca0576e5efa5423bbcac4237b1f573fce82d2a8390a0cd43",
+    "syntax": "OK",
+    "symbols": [
+      "haversine_m:74",
+      "GPSThresholdFilter:87",
+      "AttitudeThresholdFilter:132",
+      "DetectionLoader:171",
+      "MosaicOverlay:200",
+      "StitchingEngine:302",
+      "SessionMonitor:386",
+      "parse_args:639",
+      "main:656",
+      "__init__:94",
+      "should_accept:101",
+      "stats:123",
+      "__init__:143",
+      "should_accept:148",
+      "stats:162",
+      "__init__:174",
+      "load_all:178",
+      "draw_detections:222",
+      "stitch:308",
+      "_stitch_external:322",
+      "_stitch_opencv:366",
+      "__init__:392",
+      "scan_new_images:420",
+      "process_new_images:429",
+      "should_stitch:477",
+      "run_stitch:481",
+      "run_stitch_async:552",
+      "_extract_flight_metadata:557",
+      "print_summary:627"
+    ]
+  },
+  {
+    "file": "SIMULASI LIVE/bbox_stitcher.py",
+    "lines": 213,
+    "sha256": "8b17ad246bfc17ab33b68f4f122ca75715ee7446a134fd7fec30cd83e95972e3",
+    "syntax": "OK",
+    "symbols": [
+      "BBoxStitcher:7",
+      "__init__:12",
+      "_resize:27",
+      "transform_bbox_corners:35",
+      "add_frame:60",
+      "draw_overlays:190"
+    ]
+  },
+  {
+    "file": "SIMULASI LIVE/receiver.py",
+    "lines": 194,
+    "sha256": "ee01aaab8aeb2d8ac91897ebf996b661adb95b35341b640fcfbb4f7271e3ec65",
+    "syntax": "OK",
+    "symbols": [
+      "recvall:19",
+      "main:30"
+    ]
+  },
+  {
+    "file": "SIMULASI LIVE/sender.py",
+    "lines": 130,
+    "sha256": "55cc6ddb459226d45b02fd05a52b66f7cddfe90109b3d592f8afb56c80c99520",
+    "syntax": "OK",
+    "symbols": [
+      "send_image:14",
+      "main:25"
+    ]
+  },
+  {
+    "file": "SIMULASI LIVE/sim_bbox_receiver.py",
+    "lines": 124,
+    "sha256": "f9b4474366574a1b93d1cd37a7267d4a4327d05185790a341c43b27546c004ba",
+    "syntax": "OK",
+    "symbols": [
+      "recvall:24",
+      "main:34"
+    ]
+  },
+  {
+    "file": "SIMULASI LIVE/sim_bbox_sender.py",
+    "lines": 162,
+    "sha256": "df823e6ec3e795c5dcfc76b8827a0a6160d76487f366d6792dc0858233bba1f4",
+    "syntax": "OK",
+    "symbols": [
+      "generate_simulated_metadata:23",
+      "send_packet:69",
+      "main:97"
+    ]
+  },
+  {
+    "file": "SIMULASI LIVE/stitcher.py",
+    "lines": 387,
+    "sha256": "01fdb6f985e7c33f0895c27a191b3433321683dfd0e83cceb2cb0b3e1c6e04ae",
+    "syntax": "OK",
+    "symbols": [
+      "compute_unrot_matrix:17",
+      "warp_perspective_with_padding:49",
+      "roi_feather_blend:68",
+      "LiveStitcher:120",
+      "__init__:129",
+      "preprocess:154",
+      "_detect_features:179",
+      "_match_features:187",
+      "_estimate_transform:195",
+      "_compute_canvas_bounds:209",
+      "_warp_images:224",
+      "add_image:236",
+      "get_mosaic:362",
+      "print_summary:366"
+    ]
+  },
+  {
+    "file": "src/blending.py",
+    "lines": 358,
+    "sha256": "f0db7178a048c341143ca48e3f7fa5d0a6e823c53941ad6a11fcac831dc0c62c",
+    "syntax": "OK",
+    "symbols": [
+      "PyramidBlender:7",
+      "simpleBlender:187",
+      "ROIfeatherBlender:198",
+      "hybridBlender:243",
+      "AdaptiveWeightedFusion:270",
+      "incrementalFusion:309",
+      "compensate_exposure:352",
+      "gaussian_pyramid:9",
+      "laplacian_pyramid:26",
+      "blend_pyramids:39",
+      "reconstruct:53",
+      "create_blend_mask:69",
+      "blend_images_lowres:78",
+      "blend_images_roi:101",
+      "blend_images:133",
+      "feather_blend:189",
+      "_roi_feather_blend:200",
+      "hybrid_blend:245",
+      "generate_weight_map:272",
+      "adaptive_weight_map:287",
+      "__init__:310",
+      "add_image:318",
+      "get_result:340"
+    ]
+  },
+  {
+    "file": "src/Combiner.py",
+    "lines": 353,
+    "sha256": "727d7cecad2fe60f89412d4781f020b9ee61fee278d71c0e075402563c9b54d1",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:28",
+      "__init__:29",
+      "__preprocess_images:70",
+      "__detect_features:96",
+      "__match_features:104",
+      "__estimate_transform:115",
+      "__compute_canvas_bounds:130",
+      "_warp_images:152",
+      "_legacy_blend:172",
+      "_auto_crop:189",
+      "combine:214",
+      "create_mosaic:312",
+      "_print_timing_summary:331"
+    ]
+  },
+  {
+    "file": "src/filter.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "src/geometry.py",
+    "lines": 56,
+    "sha256": "4f85e35ed10b90e69390026f94aa9a6c50c2e9d6164e6c3c6004e1695afc3533",
+    "syntax": "OK",
+    "symbols": [
+      "computeUnRotMatrix:6",
+      "warpPerspectiveWithPadding:37"
+    ]
+  },
+  {
+    "file": "src/ImageMosaic.py",
+    "lines": 90,
+    "sha256": "691ec8092d58f29efcf6768657f2f868b4b4260c446586b70fe636134d9d3856",
+    "syntax": "OK",
+    "symbols": [
+      "main:25"
+    ]
+  },
+  {
+    "file": "src/preprocessing.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "src/redundant_filter.py",
+    "lines": 341,
+    "sha256": "964a2a95a4d57f1444b707340d15a071dedfcb6481e0d12be13a1814fddf1cd1",
+    "syntax": "OK",
+    "symbols": [
+      "compute_brisque_score:10",
+      "redundancy_removal_he2024:59",
+      "compute_overlap_rate:111",
+      "lagrange_interpolation:163",
+      "compute_remapping_error:183",
+      "keyframe_selection_yuan2024:233"
+    ]
+  },
+  {
+    "file": "src/utilities.py",
+    "lines": 249,
+    "sha256": "347fd8eaed218acdf183790da5e640b950e3dc25f7d2587680832e9838d3e803",
+    "syntax": "OK",
+    "symbols": [
+      "extract_gps_data_PIL:14",
+      "extract_gps_data:69",
+      "extract_gps_data_tuple:106",
+      "extract_gps_data_dict:113",
+      "redundancy_filter:121",
+      "importData:150",
+      "display:190",
+      "drawMatches:204"
+    ]
+  },
+  {
+    "file": "src/__init__.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "src/backup/Combiner.py",
+    "lines": 266,
+    "sha256": "fa0d3c1b957a9003a57d7a7712c5c9c1925ac1f1bb41e51cfeac8c147921e5de",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:15",
+      "__init__:16",
+      "createMosaic:63",
+      "combine:74",
+      "print_timing_summary:241"
+    ]
+  },
+  {
+    "file": "src/backup/Combiner2.py",
+    "lines": 255,
+    "sha256": "0c8fe158f4b3b25e63306a3d4aa2683f0b20ae09abb962797020e33de4385e49",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:15",
+      "__init__:16",
+      "createMosaic:63",
+      "combine:74",
+      "print_timing_summary:230"
+    ]
+  },
+  {
+    "file": "src/backup/Combiner_pre_revision.py",
+    "lines": 361,
+    "sha256": "64ef01c4f9b56352e8b4f8ffb51a03a82f0f41b1cd330c9a7f13331b57a2ab4b",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:15",
+      "__init__:16",
+      "__preprocess_images:48",
+      "__detect_features:72",
+      "__match_features:80",
+      "__estimate_transform:91",
+      "__compute_canvas_bounds:106",
+      "__predict_roi:128",
+      "_warp_images:159",
+      "_legacy_blend:179",
+      "combine:200",
+      "create_mosaic:325",
+      "_print_timing_summary:339"
+    ]
+  },
+  {
+    "file": "src/backup/refactored_Combiner.py",
+    "lines": 308,
+    "sha256": "690d9375cb37f21f43ff106726f36eb4264eaa46ecf21066795e594ed6f12e2f",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:15",
+      "__init__:16",
+      "__preprocess_images:44",
+      "__detect_features:68",
+      "__match_features:76",
+      "__estimate_transform:87",
+      "__compute_canvas_bounds:102",
+      "_warp_images:124",
+      "_legacy_blend:144",
+      "create_mosaic:167",
+      "combine:181",
+      "create_mosaic:247",
+      "_print_timing_summary:290"
+    ]
+  },
+  {
+    "file": "src2/blending.py",
+    "lines": 128,
+    "sha256": "1c8590898ef04b03e8d9f7aa66f0b96a5ecdb8e467fea1ca3b4a2622c658defc",
+    "syntax": "OK",
+    "symbols": [
+      "PyramidBlender:4",
+      "gaussian_pyramid:7",
+      "laplacian_pyramid:16",
+      "blend_pyramids:29",
+      "reconstruct:49",
+      "create_blend_mask:65",
+      "blend_images:73"
+    ]
+  },
+  {
+    "file": "src2/Combiner.py",
+    "lines": 284,
+    "sha256": "a374c3bd2c0cba9689cf8f1ce13d4d29e941f53cc9270b262643479305d9c8a7",
+    "syntax": "OK",
+    "symbols": [
+      "Combiner:11",
+      "__init__:12",
+      "createMosaicGPS:39",
+      "createMosaic:134",
+      "combine:147"
+    ]
+  },
+  {
+    "file": "src2/geometry.py",
+    "lines": 55,
+    "sha256": "075a3a54686abe32ce72a8dc36ce2079285e409affe7a06abb5f5d39df6e54d1",
+    "syntax": "OK",
+    "symbols": [
+      "computeUnRotMatrix:5",
+      "warpPerspectiveWithPadding:36"
+    ]
+  },
+  {
+    "file": "src2/geometry2.py",
+    "lines": 142,
+    "sha256": "f5b7a7d3c7897f4df70dae2ee2340e5b480892d172abddf3b379ec1d00b54228",
+    "syntax": "OK",
+    "symbols": [
+      "computeUnRotMatrix:6",
+      "warpPerspectiveWithPadding:66",
+      "gps_to_local_coords:109"
+    ]
+  },
+  {
+    "file": "src2/ImageMosaic.py",
+    "lines": 110,
+    "sha256": "be59f2007c7d53330b3e90b9e701c77f6a95d5df6fe4de108b02846e1465cc61",
+    "syntax": "OK",
+    "symbols": [
+      "main:15"
+    ]
+  },
+  {
+    "file": "src2/utilities.py",
+    "lines": 336,
+    "sha256": "c8ce9b4c30929ed4a4515975e7fefdca852753a9b08bf51b45df454f8fc4107f",
+    "syntax": "OK",
+    "symbols": [
+      "extract_gps_data:16",
+      "convert_dms_to_decimal:111",
+      "extract_orientation_data:140",
+      "importData:180",
+      "display:230",
+      "drawMatches:255",
+      "save_metadata:321"
+    ]
+  },
+  {
+    "file": "src2/__init__.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "test/another_extract_gps.py",
+    "lines": 33,
+    "sha256": "2f53e4d9a24fd990006c85b96c2c7d823da3a3b811273c6fbe16765a50d29615",
+    "syntax": "OK",
+    "symbols": [
+      "test_extract_gps:4"
+    ]
+  },
+  {
+    "file": "test/punya_nova.py",
+    "lines": 246,
+    "sha256": "ed253c2c77c15b68539fe94a2d05181786bddffa435f040782e7d6f88a165080",
+    "syntax": "OK",
+    "symbols": [
+      "load_images:7",
+      "detect_features:35",
+      "match_features:49",
+      "estimate_homography:71",
+      "warp_and_blend:83",
+      "crop_black_area:146",
+      "stitch_pair:165",
+      "stitch_dataset:185",
+      "main:198"
+    ]
+  },
+  {
+    "file": "test/test_extract_gps.py",
+    "lines": 21,
+    "sha256": "cf24fa43c5cc27f36d5254c3e2d340a6e1836f5deff4ac709e9f9b14dc4a3493",
+    "syntax": "OK",
+    "symbols": [
+      "TestExtractGPS:9",
+      "setUp:10",
+      "test_extract_gps_data_tuple:14"
+    ]
+  },
+  {
+    "file": "test/test_import_data.py",
+    "lines": 30,
+    "sha256": "bac9fca87173d2a30928bd504becee8317e7faabbc7d070af44642d9e706547f",
+    "syntax": "OK",
+    "symbols": [
+      "TestImportData:8",
+      "setUp:9",
+      "test_import_data_as_dicts:12"
+    ]
+  },
+  {
+    "file": "test/__init__.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  },
+  {
+    "file": "utils/interpolation_visualization.py",
+    "lines": 104,
+    "sha256": "0fc501091b7c84ae788e04b7b1bd3d6f5531a38bfa26b06f4cffa2a3aaa21c6d",
+    "syntax": "OK",
+    "symbols": [
+      "justInterpolation:26",
+      "InterpolationVisualizer:52",
+      "interpolationCompute:71",
+      "test_interpolation:29",
+      "interpolation:56",
+      "blend_and_visualize:74"
+    ]
+  },
+  {
+    "file": "utils/just_test.py",
+    "lines": 13,
+    "sha256": "34a2e46c4c9b294dd1d4c01a5daf08200c8d4c0493fa4e548f34ab14d170c6a1",
+    "syntax": "OK",
+    "symbols": [
+      "main:9"
+    ]
+  },
+  {
+    "file": "utils/__init__.py",
+    "lines": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "syntax": "OK",
+    "symbols": []
+  }
+]

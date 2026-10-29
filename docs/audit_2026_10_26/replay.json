@@ -1,0 +1,128 @@
+{
+  "dataset": "dataset/test_orthomosaics_42imgs",
+  "config": {
+    "sift_n_features": 2000,
+    "sift_contrast_threshold": 0.03,
+    "sift_edge_threshold": 10.0,
+    "sift_sigma": 1.6,
+    "downsample_factor": 3,
+    "lowe_ratio": 0.55,
+    "min_match_count": 12,
+    "gps_distance_threshold_m": 3.0,
+    "ransac_reproj_threshold": 3.0,
+    "prefer_affine": true,
+    "force_rigid": true,
+    "blend_feather_power": 3.0,
+    "canvas_initial_padding": 500,
+    "canvas_expand_margin": 200,
+    "enable_exposure_compensation": true,
+    "enable_multiband_blend": true,
+    "multiband_levels": 2,
+    "exposure_gain_limit": 1.4,
+    "enable_heading_correction": true,
+    "heading_min_distance_m": 2.0,
+    "feature_cache_size": 5,
+    "roi_padding_factor": 0.3,
+    "gsd_default": 0.05,
+    "output_dir": "D:\\KULIAH\\BIMA - SWARM\\VISION-LIVESTITCH\\docs\\audit_2026_10_26\\replay_output",
+    "save_intermediates": false,
+    "receiver_host": "0.0.0.0",
+    "receiver_port": 5001
+  },
+  "frames": [
+    {
+      "file": "G0735851.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 450.4276999996364
+    },
+    {
+      "file": "G0735852.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 837.0762000004106
+    },
+    {
+      "file": "G0735853.JPG",
+      "status": "skipped_or_failed",
+      "error": null,
+      "wall_ms": 400.11239999967074
+    },
+    {
+      "file": "G0735854.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1082.328299999972
+    },
+    {
+      "file": "G0735855.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1374.2150000002766
+    },
+    {
+      "file": "G0735856.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1290.699399999994
+    },
+    {
+      "file": "G0735857.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1348.8796999999977
+    },
+    {
+      "file": "G0735858.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1212.399699999878
+    },
+    {
+      "file": "G0735859.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1255.3227999997034
+    },
+    {
+      "file": "G0735860.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1066.8179000003875
+    },
+    {
+      "file": "G0735861.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1148.7208000003193
+    },
+    {
+      "file": "G0735862.JPG",
+      "status": "mosaic_returned",
+      "error": null,
+      "wall_ms": 1606.7339000001084
+    }
+  ],
+  "stats": {
+    "total_received": 12,
+    "total_accepted": 12,
+    "total_rejected": 0,
+    "total_failed": 1,
+    "avg_time_ms": 959.9395545454337,
+    "canvas_size": [
+      3151,
+      2841
+    ],
+    "filter_stats": {
+      "accepted": 12,
+      "rejected": 0,
+      "total": 12,
+      "acceptance_rate": 1.0
+    },
+    "feature_cache_size": 5
+  },
+  "wall_ms_p50": 1180.5602500000987,
+  "wall_ms_p95": 1478.8485050002007,
+  "actual_mosaic_returns": 11,
+  "canvas_buffers_bytes": 143231856
+}

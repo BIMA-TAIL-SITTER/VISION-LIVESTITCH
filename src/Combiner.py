@@ -1,4 +1,17 @@
 # src/Combiner.py
+# ═══════════════════════════════════════════════════════════════════════════
+#  REVISED Combiner — Anti-drift + Exposure Compensation + Auto-crop
+# ═══════════════════════════════════════════════════════════════════════════
+#  Perubahan utama dari versi sebelumnya:
+#    1. Match terhadap MOSAIC (akumulasi), bukan gambar sebelumnya saja
+#       → menghilangkan chaining homography → eliminasi drift
+#    2. Exposure compensation sebelum blending
+#    3. Auto-crop black borders pada mosaic akhir
+#    4. Parameter tuning: downsample 5→4, SIFT 1800→2500, ratio 0.55→0.65
+#    5. Overflow fix di blending (di blending.py)
+#  Original backup: src/backup/Combiner_pre_revision.py
+# ═══════════════════════════════════════════════════════════════════════════
+
 import cv2
 import numpy as np
 import sys
@@ -10,18 +23,26 @@ from src.redundant_filter import keyframe_selection_yuan2024, redundancy_removal
 import utilities as util
 import geometry as gm
 import copy
-from blending import PyramidBlender, ROIfeatherBlender
+from blending import PyramidBlender, ROIfeatherBlender, compensate_exposure
 
 class Combiner:
-    def __init__(self,imageList_,dataMatrix_, output="output"):
+    def __init__(self,imageList_,dataMatrix_, output="output",
+                 downsample=4, n_features=2500, ratio_thresh=0.65):
         '''
         :param imageList_: List of all images in dataset.
         :param dataMatrix_: Matrix with all pose data in dataset.
+        :param output: Output directory for results.
+        :param downsample: Downsample factor for preprocessing (default 4, was 5).
+        :param n_features: Number of SIFT keypoints (default 2500, was 1800).
+        :param ratio_thresh: Lowe's ratio test threshold (default 0.65, was 0.55).
         :return:
         '''
         self.dataMatrix = dataMatrix_
         self.output_dir = output
         self.match_output_dir = os.path.join(self.output_dir, "matches")
+        self.downsample = downsample
+        self.n_features = n_features
+        self.ratio_thresh = ratio_thresh
         self.timing_stats = {
             'preprocessing': 0,
             'feature_detection': 0,
@@ -35,11 +56,12 @@ class Combiner:
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.match_output_dir, exist_ok=True)
 
-        self.H_global_prev = np.eye(3, dtype=np.float32)
-        self.H_rel_prev = None
+        # Exposure compensation: reference mean brightness dari gambar pertama
+        self._ref_mean = None
 
         self.image_list = self.__preprocess_images(imageList_)
         self.result_image = self.image_list[0]
+        self._ref_mean = float(self.result_image.mean())
 
     # ------------------------------------------------------------------ #
     #  PRIVATE HELPERS                                                     #
@@ -49,9 +71,10 @@ class Combiner:
         '''Downsample and unrotate all input images'''
         t0 = time.time()
         processed_images = []
+        ds = self.downsample
 
         for i, img in enumerate(raw_image):
-            downsampled = img[::5, ::5]  # Downsample by factor of 5
+            downsampled = img[::ds, ::ds]  # Downsample by configurable factor
             M = gm.computeUnRotMatrix(self.dataMatrix[i,:])
             correctedImage = gm.warpPerspectiveWithPadding(downsampled, M)
             processed_images.append(correctedImage)
@@ -66,24 +89,25 @@ class Combiner:
         gc.collect()
 
         self.timing_stats['preprocessing'] = time.time() - t0
-        print(f"⏱️  Preprocessing: {self.timing_stats['preprocessing']:.3f}s")
+        print(f"Preprocessing: {self.timing_stats['preprocessing']:.3f}s "
+              f"(downsample={ds}x, output ~{processed_images[0].shape[1]}x{processed_images[0].shape[0]}px)")
         return processed_images
     
     def __detect_features(self, image):
         ''' Detect features for a given image '''
-        detector = cv2.SIFT_create(1800)
+        detector = cv2.SIFT_create(self.n_features)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         ret, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
         kp, descriptors = detector.detectAndCompute(gray, mask)
         return kp, descriptors
     
     def __match_features(self, descriptors1, descriptors2):
-        ''' Match features between two sets of decriptors '''
+        ''' Match features between two sets of descriptors '''
         '''use brute force matching and apply ratio test to prune bad matches'''
         matcher = cv2.BFMatcher()
         matches = matcher.knnMatch(descriptors2, descriptors1, k=2)
         good = [m for pair in matches if len(pair) == 2
-                for m, n in [pair] if m.distance < 0.55 * n.distance] 
+                for m, n in [pair] if m.distance < self.ratio_thresh * n.distance] 
         # this block is literally the same with the for if if block
         return good
 
@@ -125,37 +149,6 @@ class Combiner:
         xMax, yMax = np.int32(all_corners.max(axis=0).ravel() + 0.5)
         return xMin, yMin, xMax, yMax
     
-    def __predict_roi(self, h_rel_prev, image_shape):
-        ''' 
-        Predict the ROI in the new image based on the previous homography and the image shape.
-        This is a simple heuristic that assumes the camera motion is mostly forward and the scene is mostly planar.
-        '''
-        height, width = image_shape[:2]
-        corners = np.array([
-            [0, 0],
-            [0, height],
-            [width, height],
-            [width, 0]
-        ], dtype=np.float32).reshape(-1, 1, 2)
-
-        _, H_inv = cv2.invert(h_rel_prev)
-        warped_corners = cv2.perspectiveTransform(corners, H_inv)
-        x_min, y_min = np.int32(warped_corners.min(axis=0).ravel() - 0.5)
-        x_max, y_max = np.int32(warped_corners.max(axis=0).ravel() + 0.5)
-        
-        # margin of tolerance
-        pad_x = int(0.15 * width)
-        pad_y = int(0.15* height)
-        x_start = max(x_min - pad_x, 0)
-        y_start = max(y_min - pad_y, 0)
-        x_end = min(x_max + pad_x, width)
-        y_end = min(y_max + pad_y, height)
-
-        # FALLBACK 
-        if (x_end - x_start < 100) or (y_end - y_start < 100):
-            x_start, y_start, x_end, y_end = 0, 0, width, height
-        return x_start, y_start, x_end, y_end
-    
     def _warp_images(self, result_image, image2, A, H, xMin, yMin, xMax, yMax):
         ''' 
         warp both images onto a common canvas and return them
@@ -192,136 +185,130 @@ class Combiner:
         warped_img2 = warped_img2_float.astype(np.uint8)
 
         return warped_result + warped_img2
+
+    def _auto_crop(self, mosaic):
+        """
+        Remove black borders from the final mosaic.
+        Detects the largest non-black contour and crops to its bounding rect.
+        """
+        gray = cv2.cvtColor(mosaic, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+
+        # Morphological close to fill small internal gaps
+        kernel = np.ones((5, 5), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(largest)
+            print(f"Auto-crop: origin=({x},{y}), size={w}x{h} "
+                  f"(was {mosaic.shape[1]}x{mosaic.shape[0]})")
+            return mosaic[y:y+h, x:x+w]
+        return mosaic
     
     # ------------------------------------------------------------------ #
     #  PUBLIC FUNCTIONs                                                  #
     # ------------------------------------------------------------------ #
 
     def combine(self, index):
-        """Stitch image[index] into the running mosaic."""
+        """
+        Stitch image[index] into the running mosaic.
 
-        # Attempt to combine one pair of images at each step. Assume the order in which the images are given is the best order.
-        # This intorduces drift!
-        image1 = self.image_list[index-1].copy()
+        REVISED: Matches the new image directly against the accumulated
+        mosaic (self.result_image) instead of just the previous frame.
+        This eliminates homography chaining (H_global = H_prev * H_rel)
+        and therefore prevents drift accumulation.
+
+        Also applies exposure compensation before blending.
+        """
+
         image2 = self.image_list[index].copy()
 
-        # --- ADAPTIVE ROI PREDICTION (towards initial images to incoming images)--- #
-        if self.H_rel_prev is not None:
-            x_start, y_start, x_end, y_end = self.__predict_roi(self.H_rel_prev, image2.shape)
-            image2_roi = image2[y_start:y_end, x_start:x_end]
-            is_cropped = True
-            print(f"Predicted ROI for image {index}: ({x_start}, {y_start}) to ({x_end}, {y_end})")
-        else:
-            image2_roi = image2
-            is_cropped = False
-            print(f"No valid homography from previous step. Using full image for image {index}.")
+        # --- Exposure Compensation ---
+        # Normalize brightness to match the first frame (mosaic reference)
+        if self._ref_mean is not None:
+            image2 = compensate_exposure(image2, self._ref_mean)
 
-        # --- feature detection --- #
+        # --- Feature detection on MOSAIC and NEW IMAGE ---
         t = time.time()
-        kp1, descriptors1 = self.__detect_features(image1)
-        kp2_roi, descriptors2 = self.__detect_features(image2_roi)
-
-        # revert keypoint coordinates to original full image space if cropped
-        kp2 = []
-        if is_cropped:
-            # for kp in kp2_roi:
-            #     kp.pt = (kp.pt[0] + x_start, kp.pt[1] + y_start)
-            #     kp2.append(kp)
-            for kp in kp2_roi:
-                new_kp = cv2.KeyPoint(
-                    x=kp.pt[0] + x_start, 
-                    y=kp.pt[1] + y_start, 
-                    size=kp.size, 
-                    angle=kp.angle, 
-                    response=kp.response, 
-                    octave=kp.octave, 
-                    class_id=kp.class_id
-                )
-                kp2.append(new_kp)
-        else:
-            kp2 = kp2_roi
+        kp1, descriptors1 = self.__detect_features(self.result_image)  # mosaic
+        kp2, descriptors2 = self.__detect_features(image2)             # new image
         elapsed_fd = time.time() - t
         self.timing_stats['feature_detection'] += elapsed_fd
-        print(f"⏱️  Feature Detection: {elapsed_fd:.3f}s ({len(kp1)} + {len(kp2)} keypoints)")
+        print(f"Feature Detection: {elapsed_fd:.3f}s "
+              f"({len(kp1)} mosaic + {len(kp2)} new keypoints)")
 
         # check if descriptors were found
         if descriptors1 is None or descriptors2 is None:
-            print(f"⚠️  Warning: No features detected in image pair {index-1}-{index}. Skipping.")
+            print(f"Warning: No features detected for image {index}. Skipping.")
             return self.result_image
 
-        # --- feature matching --- #
+        # --- Feature matching ---
         t = time.time()
         matches = self.__match_features(descriptors1, descriptors2)
         elapsed_match = time.time() - t
         self.timing_stats['matching'] += elapsed_match
-        print(f"⏱️  Feature Matching: {elapsed_match:.3f}s ({len(matches)} good matches)")
+        print(f"Feature Matching: {elapsed_match:.3f}s ({len(matches)} good matches)")
         if len(matches) < 4:
-            print(f"⚠️  Warning: Only {len(matches)} matches found for image pair {index-1}-{index}. Need at least 4. Skipping.")
+            print(f"Warning: Only {len(matches)} matches found for image {index}. "
+                  f"Need at least 4. Skipping.")
             return self.result_image
         
-        # --- transformation estimation --- #
+        # --- Transformation estimation ---
+        # Transform maps image2 coords -> mosaic coords DIRECTLY.
+        # No chaining needed — this is the key anti-drift change.
         t = time.time()
-        A_rel, H_rel,_, _ = self.__estimate_transform(kp1, kp2, matches)
+        A_direct, H_direct, _, _ = self.__estimate_transform(kp1, kp2, matches)
         elapsed_tf = time.time() - t
         self.timing_stats['transformation'] += elapsed_tf
-        print(f"⏱️  Transformation Estimation: {elapsed_tf:.3f}s")
+        print(f"Transformation Estimation: {elapsed_tf:.3f}s")
 
-        if A_rel is None and H_rel is None:
-            print(f"⚠️  Warning: Could not compute transformation for image pair {index-1}-{index}. Skipping.")
+        if A_direct is None and H_direct is None:
+            print(f"Warning: Could not compute transformation for image {index}. Skipping.")
             return
-        
-        # --- chained / accumulated homography ---
-        if A_rel is not None:
-            H_rel_3x3 = np.vstack([A_rel, [0, 0, 1]])
+
+        # Convert affine to 3x3 if needed
+        if A_direct is not None:
+            H_3x3 = np.vstack([A_direct, [0, 0, 1]]).astype(np.float32)
         else:
-            H_rel_3x3 = H_rel
-
-        self.H_rel_prev = H_rel_3x3
-
-        H_global_current = np.dot(self.H_global_prev, H_rel_3x3)
+            H_3x3 = H_direct.astype(np.float32)
 
         # normalized scale
-        H_global_current = H_global_current / H_global_current[2, 2]
+        H_3x3 = H_3x3 / H_3x3[2, 2]
 
-        # --- end of transformation estimation --- #
+        # --- Match visualization (before warp, while kp coords still valid) ---
+        match_subset = matches[:40]  # cap for readability
+        match_drawing = cv2.drawMatches(
+            image2, kp2, self.result_image, kp1, match_subset, None,
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+        )
+        match_output_path = os.path.join(self.match_output_dir, f"matches_{index}.jpg")
+        cv2.imwrite(match_output_path, match_drawing)
 
-        # --- warping --- #
+        # --- Warping ---
         t = time.time()
-        xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(self.result_image.shape, image2.shape, None, H_global_current)
-        warped_result, warped_image2 = self._warp_images(self.result_image, image2, None, H_global_current, xMin, yMin, xMax, yMax)
+        xMin, yMin, xMax, yMax = self.__compute_canvas_bounds(
+            self.result_image.shape, image2.shape, None, H_3x3
+        )
+        warped_result, warped_image2 = self._warp_images(
+            self.result_image, image2, None, H_3x3, xMin, yMin, xMax, yMax
+        )
         elapsed_warp = time.time() - t
         self.timing_stats['warping'] += elapsed_warp
-        print(f"⏱️  Warping: {elapsed_warp:.3f}s")
+        print(f"Warping: {elapsed_warp:.3f}s")
 
-        # --- blending --- #
+        # --- Blending ---
         t = time.time()
-        # self.result_image = self._legacy_blend(warped_result, warped_image2)
         self.result_image = ROIfeatherBlender._roi_feather_blend(warped_result, warped_image2)
-        # self.image_list[index] = warped_image2.copy()
         elapsed_blend = time.time() - t
         self.timing_stats['blending'] += elapsed_blend
-        print(f"⏱️  Blending: {elapsed_blend:.3f}s")
+        print(f"Blending: {elapsed_blend:.3f}s")
 
         inter_out_path = os.path.join(self.output_dir, f"intermediateResult_{index}.png")
         cv2.imwrite(inter_out_path, self.result_image)
         print(f"Intermediate result saved: {inter_out_path}")
 
-        # update global homography for next iteration
-        translation = np.float32([
-            [1, 0, -xMin],
-            [0, 1, -yMin],
-            [0, 0, 1]
-        ])
-        self.H_global_prev = np.dot(translation, H_global_current)
-
-        # --- visualize matches --- #
-        match_drawing = cv2.drawMatches(
-            image2, kp2, image1, kp1, matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-        )
-        match_output_path = os.path.join(self.match_output_dir, f"matches_{index-1}_{index}.jpg")
-        cv2.imwrite(match_output_path, match_drawing)
-        print(f"Match visualization saved: {match_output_path}")
-    
     def create_mosaic(self):
         '''
         stitch all image sequentially and return the final mosaic
@@ -332,6 +319,11 @@ class Combiner:
             print(f"stitching image {i} of {len(self.image_list)-1}")
             print(f"{'='*60}")
             self.combine(i)
+
+        # Auto-crop black borders
+        print(f"\nApplying auto-crop to remove black borders...")
+        self.result_image = self._auto_crop(self.result_image)
+
         self.timing_stats['total'] = time.time() - t0
         self._print_timing_summary()
         return self.result_image
