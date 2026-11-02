@@ -44,14 +44,14 @@ def statistics(values):
 def make_report(runtime, paths, audit, sent, elapsed, errors):
     shutdown = json.loads((runtime.root / "shutdown.json").read_text())
     report = {"dataset": audit, "files": [p.name for p in paths],
-              "configuration": runtime.cfg.model_dump(mode="json"),
+              "files_per_uav": audit.get("per_uav", {}), "configuration": runtime.cfg.model_dump(mode="json"),
               "elapsed_seconds": elapsed, "sender_errors": errors,
               "shutdown": shutdown, "uavs": {}}
     for name, state in shutdown["uavs"].items():
-        event_path = runtime.root / name / "events.jsonl"
+        event_path = runtime.result_root / name / "events.jsonl"
         events = [json.loads(line) for line in event_path.read_text().splitlines()] if event_path.exists() else []
         segments = []
-        for p in sorted((runtime.root / name / "segments").glob("*/segment.json")):
+        for p in sorted((runtime.result_root / name / "segments").glob("*/segment.json")):
             info = json.loads(p.read_text())
             mask = cv2.imread(str(p.parent / "coverage.png"), cv2.IMREAD_GRAYSCALE)
             info["coverage_fraction"] = float(np.count_nonzero(mask) / mask.size) if mask is not None else None
@@ -69,9 +69,9 @@ def make_report(runtime, paths, audit, sent, elapsed, errors):
             "segments": segments}
     write_json(runtime.root / "simulation_report.json", report)
     lines = ["# Hasil simulasi SENDER2", "", f"Dataset: `{audit['path']}`", "",
-             f"File ditemukan: {audit['discovered']}; duplikat dilewati: {len(audit['duplicates'])}; frame dipilih per UAV: {len(paths)}.",
+             f"Input per UAV: {json.dumps(audit.get('per_uav', {}), ensure_ascii=False)}",
              f"Durasi run termasuk shutdown: {elapsed:.1f} detik.", "",
-             "Dua UAV memakai dataset yang sama, dengan state/output terpisah. UDP localhost; bukan uji internet atau kamera DJI. Tanpa kalibrasi/attitude, timestamp replay bukan exposure asli. Interval tetap, tidak mengikuti timestamp filename.", "",
+             "Dataset per UAV tercatat di simulation_report.json; state/output masing-masing terpisah. UDP localhost; bukan uji internet atau kamera DJI. Tanpa kalibrasi/attitude, timestamp replay bukan exposure asli. Interval tetap, tidak mengikuti timestamp filename.", "",
              "| UAV | Dikirim | Diterima lengkap | Diproses | Masuk mosaik* | Gagal registrasi | Queue drop | Stale drop | Error worker | Segmen |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for name, data in report["uavs"].items():
@@ -92,6 +92,8 @@ def make_report(runtime, paths, audit, sent, elapsed, errors):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="dataset/DATASET 4")
+    parser.add_argument("--dataset2", help="Dataset UAV2; defaults to the same dataset as UAV1")
+    parser.add_argument("--flight", help="Named flight folder with Image and Hasil, e.g. FLIGHT-01")
     parser.add_argument("--output", default="SENDER2/runs/simulation")
     parser.add_argument("--interval", type=float, default=0.8)
     parser.add_argument("--max-mbps", type=float, default=8)
@@ -105,8 +107,17 @@ def main():
         paths = paths[:args.limit]
     if not paths:
         parser.error("dataset contains no supported images")
+    paths2, duplicates2, discovered2 = discover(args.dataset2 or args.dataset, args.keep_duplicates)
+    if args.limit:
+        paths2 = paths2[:args.limit]
+    if not paths2:
+        parser.error("UAV2 dataset contains no supported images")
+    datasets = {"UAV1": paths, "UAV2": paths2}
     audit = {"path": str(Path(args.dataset).resolve()), "discovered": discovered,
              "duplicates": duplicates, "interval_s": args.interval, "max_mbps_per_uav": args.max_mbps}
+    audit["per_uav"] = {
+        "UAV1": {"path": str(Path(args.dataset).resolve()), "selected": len(paths), "discovered": discovered, "duplicates": duplicates},
+        "UAV2": {"path": str(Path(args.dataset2 or args.dataset).resolve()), "selected": len(paths2), "discovered": discovered2, "duplicates": duplicates2}}
     sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
     try:
         for sock in sockets:
@@ -115,7 +126,7 @@ def main():
     finally:
         for sock in sockets:
             sock.close()
-    cfg = GroundConfig(mission_id="dataset_sim", bind_host="127.0.0.1", output_dir=args.output,
+    cfg = GroundConfig(mission_id=args.flight or "dataset_sim", flight_layout=bool(args.flight), bind_host="127.0.0.1", output_dir=args.output,
         allow_simulation=True, engine=EngineConfig(require_attitude=False, require_calibration=False),
         uavs=[UAVConfig(uav_id=f"UAV{i+1}", camera_id=f"camera{i+1}", port=p) for i, p in enumerate(ports)])
     runtime = GroundRuntime(cfg)
@@ -124,14 +135,14 @@ def main():
     errors = []
     started = time.monotonic()
     runtime.start()
-    print(f"RUN_DIR={runtime.root}\nUnique frames per UAV={len(paths)}", flush=True)
+    print(f"RUN_DIR={runtime.root}\nUnique frames: UAV1={len(paths)}, UAV2={len(paths2)}", flush=True)
 
     def feed(index):
         name = f"UAV{index+1}"
         sender = FrameSender("127.0.0.1", ports[index], cfg.mission_id, name, f"camera{index+1}",
                              runtime.root / "onboard_archive", simulation=True, max_mbps=args.max_mbps)
         try:
-            for path in paths:
+            for path in datasets[name]:
                 if cancelled.is_set():
                     break
                 tick = time.monotonic()

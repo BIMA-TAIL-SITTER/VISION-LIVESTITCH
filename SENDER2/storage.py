@@ -43,10 +43,11 @@ def append_json(path, value):
         stream.flush()
 
 
-def archive_frame(root, meta, data: bytes, extension: str, kind: str):
+def archive_frame(root, meta, data: bytes, extension: str, kind: str, *, include_mission=True):
     if extension.lower() not in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}:
         raise ValueError("unsupported archive format")
-    folder = Path(root) / meta.mission_id / meta.uav_id / str(meta.stream_epoch)
+    base = Path(root) / meta.mission_id if include_mission else Path(root)
+    folder = base / meta.uav_id / str(meta.stream_epoch)
     name = f"{meta.frame_id:012d}"
     path = folder / f"{name}{extension.lower()}"
     atomic_write(path, data)

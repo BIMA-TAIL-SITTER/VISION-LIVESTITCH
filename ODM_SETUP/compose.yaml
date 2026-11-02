@@ -1,0 +1,18 @@
+services:
+  nodeodm:
+    # Official linux/amd64 image pinned for reproducible installation.
+    image: opendronemap/nodeodm@sha256:dde9333fe1f89fc6164901439c58e0971a52a67ae3a5c955ae77643aa9d644f8
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/var/www/data
+    command:
+      - --parallel_queue_processing
+      - "1"
+      - --max_concurrency
+      - "4"
+      - --cleanup_tasks_after
+      - "43200"
+    mem_limit: 8g
+    cpus: 4
+    restart: unless-stopped

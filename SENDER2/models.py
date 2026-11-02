@@ -112,6 +112,7 @@ class GroundConfig(StrictModel):
     mission_id: str = Field(default="flight01", pattern=r"^[A-Za-z0-9_-]{1,32}$")
     bind_host: str = "0.0.0.0"
     output_dir: str = "SENDER2/runs"
+    flight_layout: bool = False
     queue_size: int = Field(default=4, ge=1, le=32)
     max_queue_age_s: float = Field(default=5, gt=0, le=120)
     reassembly_timeout_s: float = Field(default=2, gt=0, le=30)

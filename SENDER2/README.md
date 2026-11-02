@@ -4,6 +4,11 @@ Implementasi revisi untuk dua UAV fixed-wing. **UAV1 dan UAV2 tidak digabung men
 
 Modul terpisah untuk **5 waypoint, radius 20 meter, satu fixed-wing, UDP + ACK** tersedia di [WAYPOINTS.md](WAYPOINTS.md). Modul ini tidak mengubah pipeline stitching dan belum mengendalikan copter.
 
+Gunakan **`--flight FLIGHT-01`** untuk folder penerbangan berisi **`Image`** dan
+**`Hasil`**, dengan output UAV1/UAV2 terpisah. Simulasi menerima `--dataset` untuk
+UAV1 dan `--dataset2` untuk UAV2. Perintah lengkap dan struktur folder tersedia
+di [FLIGHT_OUTPUT.md](FLIGHT_OUTPUT.md).
+
 ## Yang sudah diimplementasikan
 
 - Schema metadata versi 2: mission/UAV/frame ID, UUID stream epoch, waktu capture dan clock domain, signed roll/pitch/yaw dalam derajat, usia telemetry, camera/calibration ID, dan tiga field altitude dengan datum berbeda.

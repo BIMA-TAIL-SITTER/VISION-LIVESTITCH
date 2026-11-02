@@ -10,6 +10,8 @@ def main():
     sub = parser.add_subparsers(dest="command",required=True)
     ground = sub.add_parser("ground",help="UDP receivers, independent workers and REST API")
     ground.add_argument("--config",default="SENDER2/config.flight.json")
+    ground.add_argument("--flight", help="Flight name, e.g. FLIGHT-01; creates Image and Hasil, refuses reuse")
+    ground.add_argument("--output", help="Parent output folder, relative to current working directory")
     ground.add_argument("--api-host",default="127.0.0.1")
     ground.add_argument("--api-port",type=int,default=8002)
     from .sender import add_arguments
@@ -32,6 +34,12 @@ def main():
         cfg = GroundConfig.model_validate_json(config_path.read_text(encoding="utf-8"))
         # Paths in config resolve against config directory, independent of shell CWD.
         cfg.output_dir = str((config_path.parent/cfg.output_dir).resolve())
+        if args.flight:
+            cfg.mission_id = args.flight
+            cfg.flight_layout = True
+        if args.output:
+            cfg.output_dir = str(Path(args.output).resolve())
+        cfg = GroundConfig.model_validate(cfg.model_dump())
         for uav in cfg.uavs:
             if uav.calibration_file:
                 uav.calibration_file = str((config_path.parent/uav.calibration_file).resolve())

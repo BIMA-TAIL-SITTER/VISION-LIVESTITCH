@@ -48,6 +48,10 @@ class GroundRuntime:
         self.cfg = config
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"_"+uuid.uuid4().hex[:8]
         self.root = Path(config.output_dir).resolve()/config.mission_id/run_id
+        if config.flight_layout:
+            self.root = Path(config.output_dir).resolve()/config.mission_id
+        self.image_root = self.root/("Image" if config.flight_layout else "received_previews")
+        self.result_root = self.root/"Hasil" if config.flight_layout else self.root
         self.ctx = mp.get_context("spawn")
         self.stop_network = threading.Event()
         self.streams = {}
@@ -59,6 +63,8 @@ class GroundRuntime:
         if self.started:
             raise RuntimeError("runtime already started")
         self.root.mkdir(parents=True, exist_ok=False)
+        self.image_root.mkdir(exist_ok=True)
+        self.result_root.mkdir(exist_ok=True)
         write_json(self.root/"config.json", self.cfg.model_dump(mode="json"))
         try:
             for uav in self.cfg.uavs:
@@ -78,7 +84,7 @@ class GroundRuntime:
                 queue = self.ctx.Queue(maxsize=self.cfg.queue_size)
                 results = self.ctx.Queue(maxsize=64)
                 event = self.ctx.Event()
-                directory = self.root/uav.uav_id
+                directory = self.result_root/uav.uav_id
                 process = self.ctx.Process(name=f"SENDER2-{uav.uav_id}", target=worker_main,
                     args=(self.cfg.engine.model_dump(), cal.model_dump() if cal else None, queue, results,
                           event, str(directory), self.cfg.max_queue_age_s))
@@ -129,7 +135,8 @@ class GroundRuntime:
                         stream["network"]["late_or_duplicate"] += 1
                     continue
                 # Archive every completed admitted preview even when live queue is full.
-                archive_frame(self.root/"received_previews", meta, payload, ".jpg", "received_compressed_preview")
+                archive_frame(self.image_root, meta, payload, ".jpg", "received_compressed_preview",
+                              include_mission=not self.cfg.flight_layout)
                 if not stream["process"].is_alive():
                     raise RuntimeError("worker unavailable; preview archived, restart ground run")
                 try:

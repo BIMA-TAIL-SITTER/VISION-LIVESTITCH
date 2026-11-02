@@ -6,6 +6,7 @@ import time
 import uuid
 import cv2
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 from SENDER2.api import create_app
 from SENDER2.models import GroundConfig, UAVConfig
@@ -31,10 +32,11 @@ def wait_for(predicate,timeout=15):
     raise AssertionError("condition did not become true before timeout")
 
 
-def test_two_uav_processes_udp_restart_loss_api_and_shutdown(workdir,engine_config,meta_factory,textured):
+@pytest.mark.parametrize("flight_layout", [False, True])
+def test_two_uav_processes_udp_restart_loss_api_and_shutdown(workdir,engine_config,meta_factory,textured,flight_layout):
     ports = unused_ports()
     cfg = GroundConfig(mission_id="test01",bind_host="127.0.0.1",output_dir=str(workdir),
-        engine=engine_config,allow_simulation=True,queue_size=4,reassembly_timeout_s=0.3,
+        engine=engine_config,allow_simulation=True,queue_size=4,reassembly_timeout_s=0.3,flight_layout=flight_layout,
         uavs=[UAVConfig(uav_id="UAV1",port=ports[0]),UAVConfig(uav_id="UAV2",port=ports[1])])
     runtime = GroundRuntime(cfg)
     sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
@@ -76,10 +78,16 @@ def test_two_uav_processes_udp_restart_loss_api_and_shutdown(workdir,engine_conf
         sock.close()
         runtime.stop()
     assert all(not s["process"].is_alive() for s in runtime.streams.values())
-    assert (root/"UAV1/segments/0000/mosaic.png").exists()
-    assert (root/"UAV1/segments/0001/mosaic.png").exists()
-    assert (root/"UAV2/segments/0000/mosaic.png").exists()
-    assert (root/"UAV1/segments/0001/coverage.png").exists()
+    assert (runtime.result_root/"UAV1/segments/0000/mosaic.png").exists()
+    assert (runtime.result_root/"UAV1/segments/0001/mosaic.png").exists()
+    assert (runtime.result_root/"UAV2/segments/0000/mosaic.png").exists()
+    assert (runtime.result_root/"UAV1/segments/0001/coverage.png").exists()
+    if flight_layout:
+        assert root == workdir.resolve()/"test01"
+        assert len(list((root/"Image/UAV1").rglob("*.jpg"))) == 2
+        assert len(list((root/"Image/UAV2").rglob("*.jpg"))) == 1
+        with pytest.raises(FileExistsError):
+            GroundRuntime(cfg).start()
     shutdown = json.loads((root/"shutdown.json").read_text())
     assert all(s["worker"]["state"]=="stopped" for s in shutdown["uavs"].values())
 

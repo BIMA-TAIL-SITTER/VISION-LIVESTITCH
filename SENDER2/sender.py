@@ -135,7 +135,8 @@ class FrameSender:
 def add_arguments(parser):
     parser.add_argument("--host",required=True)
     parser.add_argument("--port",type=int,required=True)
-    parser.add_argument("--mission",default="flight01")
+    parser.add_argument("--mission", "--flight", dest="mission", default="flight01",
+                        help="Must match ground flight/mission name")
     parser.add_argument("--uav",choices=["UAV1","UAV2"],required=True)
     parser.add_argument("--camera-id",default="camera1")
     parser.add_argument("--calibration-id")
