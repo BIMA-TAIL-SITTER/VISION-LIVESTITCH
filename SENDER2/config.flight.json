@@ -1,0 +1,23 @@
+{
+  "mission_id": "flight01",
+  "bind_host": "0.0.0.0",
+  "output_dir": "runs",
+  "queue_size": 4,
+  "max_queue_age_s": 5,
+  "reassembly_timeout_s": 2,
+  "allow_simulation": false,
+  "engine": {
+    "working_width": 960,
+    "require_attitude": true,
+    "require_calibration": true,
+    "model": "similarity",
+    "max_roll_deg": 30,
+    "max_pitch_deg": 30,
+    "max_telemetry_age_ms": 500,
+    "max_canvas_pixels": 24000000
+  },
+  "uavs": [
+    {"uav_id": "UAV1", "port": 5600, "camera_id": "camera1", "calibration_file": "calibrations/UAV1.json"},
+    {"uav_id": "UAV2", "port": 5610, "camera_id": "camera2", "calibration_file": "calibrations/UAV2.json"}
+  ]
+}

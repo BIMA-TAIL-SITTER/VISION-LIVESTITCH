@@ -221,10 +221,11 @@ class ROIfeatherBlender:
         roi_mask2 = mask2[y:y+h, x:x+w]
         roi_overlap = overlap_mask[y:y+h, x:x+w]
 
-        dist1 = cv2.distanceTransform(roi_mask1, cv2.DIST_L2, 3)
-        dist2 = cv2.distanceTransform(roi_mask2, cv2.DIST_L2, 3)
+        dist1 = cv2.distanceTransform(roi_mask1, cv2.DIST_L2, 3).astype(np.float32)
+        dist2 = cv2.distanceTransform(roi_mask2, cv2.DIST_L2, 3).astype(np.float32)
 
         alpha = dist1 / (dist1 + dist2 + 1e-6)
+        alpha = np.clip(alpha, 0.0, 1.0).astype(np.float32)
         alpha = alpha ** 3
         alpha = cv2.merge([alpha, alpha, alpha]) # turn into 3 channel alpha
 

@@ -1,0 +1,144 @@
+{
+  "dataset": "D:\\KULIAH\\BIMA - SWARM\\VISION-LIVESTITCH\\dataset\\test_orthomosaics_42imgs",
+  "files": [
+    "G0735851.JPG",
+    "G0735852.JPG",
+    "G0735853.JPG",
+    "G0735854.JPG",
+    "G0735855.JPG",
+    "G0735856.JPG",
+    "G0735857.JPG",
+    "G0735858.JPG",
+    "G0735859.JPG",
+    "G0735860.JPG",
+    "G0735861.JPG",
+    "G0735862.JPG"
+  ],
+  "frames_sent_per_uav": 12,
+  "configuration": {
+    "mission_id": "audit_replay",
+    "bind_host": "127.0.0.1",
+    "output_dir": "SENDER2/test_artifacts/replay",
+    "queue_size": 4,
+    "max_queue_age_s": 5.0,
+    "reassembly_timeout_s": 2.0,
+    "allow_simulation": true,
+    "engine": {
+      "working_width": 960,
+      "sift_features": 2500,
+      "ratio_test": 0.7,
+      "min_inliers": 16,
+      "min_inlier_ratio": 0.45,
+      "max_median_error_px": 1.8,
+      "max_p95_error_px": 3.5,
+      "ransac_px": 3.0,
+      "min_feature_coverage": 0.025,
+      "min_overlap": 0.15,
+      "min_scale": 0.75,
+      "max_scale": 1.33,
+      "model": "similarity",
+      "keyframe_cache": 6,
+      "recovery_failures": 4,
+      "max_canvas_pixels": 24000000,
+      "blur_threshold": 15.0,
+      "max_roll_deg": 30.0,
+      "max_pitch_deg": 30.0,
+      "max_telemetry_age_ms": 500.0,
+      "require_attitude": false,
+      "require_calibration": false,
+      "publish_interval_s": 1.0,
+      "preview_max_side": 1600
+    },
+    "uavs": [
+      {
+        "uav_id": "UAV1",
+        "port": 53210,
+        "camera_id": "camera1",
+        "calibration_file": null
+      },
+      {
+        "uav_id": "UAV2",
+        "port": 53211,
+        "camera_id": "camera2",
+        "calibration_file": null
+      }
+    ]
+  },
+  "shutdown": {
+    "mission_id": "audit_replay",
+    "run_dir": "D:\\KULIAH\\BIMA - SWARM\\VISION-LIVESTITCH\\SENDER2\\test_artifacts\\replay\\audit_replay\\20261027T031459Z_965ac03d",
+    "closing": true,
+    "uavs": {
+      "UAV1": {
+        "worker_alive": false,
+        "worker_exitcode": 0,
+        "port": 53210,
+        "network": {
+          "datagrams": 1760,
+          "enqueued": 12
+        },
+        "reassembly": {
+          "completed": 12
+        },
+        "pending_bytes": 0,
+        "last_error": null,
+        "worker": {
+          "state": "stopped",
+          "error": null,
+          "segment": 1,
+          "canvas_shape": [
+            1511,
+            1544
+          ],
+          "processed": 12,
+          "stitched": 8,
+          "rejected": 0,
+          "registration_failed": 4,
+          "errors": 0,
+          "stale_dropped": 0
+        }
+      },
+      "UAV2": {
+        "worker_alive": false,
+        "worker_exitcode": 0,
+        "port": 53211,
+        "network": {
+          "datagrams": 1760,
+          "enqueued": 12
+        },
+        "reassembly": {
+          "completed": 12
+        },
+        "pending_bytes": 0,
+        "last_error": null,
+        "worker": {
+          "state": "stopped",
+          "error": null,
+          "segment": 1,
+          "canvas_shape": [
+            1511,
+            1544
+          ],
+          "processed": 12,
+          "stitched": 8,
+          "rejected": 0,
+          "registration_failed": 4,
+          "errors": 0,
+          "stale_dropped": 0
+        }
+      }
+    }
+  },
+  "metrics": {
+    "UAV1": {
+      "events": 12,
+      "worker_wall_p50_ms": 326.75505,
+      "worker_wall_p95_ms": 561.824325
+    },
+    "UAV2": {
+      "events": 12,
+      "worker_wall_p50_ms": 303.92735000000005,
+      "worker_wall_p95_ms": 484.96166999999997
+    }
+  }
+}

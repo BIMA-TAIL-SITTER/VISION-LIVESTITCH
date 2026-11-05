@@ -1,0 +1,82 @@
+{
+  "inventory": {
+    "python_files": 88,
+    "lines": 19936,
+    "syntax_errors": []
+  },
+  "rigid_postfit": {
+    "reported_inliers": 40,
+    "median_error_px": 41.75588607788086,
+    "max_error_px": 66.42333221435547
+  },
+  "black_pixel_mask": {
+    "expected_new_valid_pixels": 1600,
+    "actual_new_valid_pixels": 0
+  },
+  "filter_committed_before_registration": {
+    "failed_is_none": true,
+    "good_retry_is_rejected": true,
+    "stats": {
+      "total_received": 3,
+      "total_accepted": 2,
+      "total_rejected": 1,
+      "total_failed": 1,
+      "avg_time_ms": 0.0,
+      "canvas_size": [
+        0,
+        0
+      ],
+      "filter_stats": {
+        "accepted": 2,
+        "rejected": 1,
+        "total": 3,
+        "acceptance_rate": 0.6666666666666666
+      },
+      "feature_cache_size": 1
+    },
+    "last_successful_gps": {
+      "latitude": -7.0,
+      "longitude": 112.0,
+      "altitude": 80
+    },
+    "filter_position": [
+      -7.0,
+      112.00005
+    ]
+  },
+  "udp_source_collision": {
+    "assembled": "UAV_A_0UAV_B_1",
+    "sources_distinguished": false
+  },
+  "udp_invalid_index": "KeyError: 0",
+  "batch_without_new_frames": {
+    "ready_before": true,
+    "ready_after": true,
+    "generated_metadata": [
+      {
+        "latitude": -7.123356,
+        "longitude": 112.654421,
+        "altitude": 80.0,
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "has_exif": false
+      },
+      {
+        "latitude": -7.123256,
+        "longitude": 112.654521,
+        "altitude": 80.0,
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "has_exif": false
+      }
+    ]
+  },
+  "angle_unit_mismatch": {
+    "expected_deg": 90.0,
+    "actual_deg": 1.5707963267948966
+  },
+  "import_service": "OK",
+  "import_core_gmf.image_corrector": "ModuleNotFoundError: No module named 'core_gmf.stitch_utils'"
+}

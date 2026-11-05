@@ -31,7 +31,7 @@ class Combiner:
             'blending': 0,
             'total': 0
         }
-        
+
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.match_output_dir, exist_ok=True)
 
@@ -80,7 +80,7 @@ class Combiner:
         self.timing_stats['preprocessing'] = time.time() - t0
         print(f"⏱️  Preprocessing: {self.timing_stats['preprocessing']:.3f}s")
         return processed_images
-    
+
     def __detect_features(self, image):
         ''' Detect features for a given image '''
         detector = cv2.SIFT_create(1800)
@@ -88,20 +88,20 @@ class Combiner:
         ret, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
         kp, descriptors = detector.detectAndCompute(gray, mask)
         return kp, descriptors
-    
+
     def __match_features(self, descriptors1, descriptors2):
         ''' Match features between two sets of decriptors '''
         '''use brute force matching and apply ratio test to prune bad matches'''
         matcher = cv2.BFMatcher()
         matches = matcher.knnMatch(descriptors2, descriptors1, k=2)
         good = [m for pair in matches if len(pair) == 2
-                for m, n in [pair] if m.distance < 0.55 * n.distance] 
+                for m, n in [pair] if m.distance < 0.55 * n.distance]
         # this block is literally the same with the for if if block
         return good
 
 
     def __estimate_transform(self, kp1, kp2, matches):
-        ''' 
+        '''
         try affine transform first, then homography if affine fail
         returns (A, H) A is affine transform, H is homography
         where one of them is None depending on which one is successful
@@ -116,7 +116,7 @@ class Combiner:
             return A, None, inlier_mask, src_pts, dst_pts
         H, inlier_mask = cv2.findHomography(src_pts, dst_pts, method=cv2.RANSAC)
         return None, H, inlier_mask, src_pts, dst_pts
-    
+
     def __compute_canvas_bounds(self, shape1, shape2, A, H):
         ''' Return (xMin, yMin, xMax, yMax) of the canvas needed to fit both images after transformation '''
         height1, width1 = shape1[:2]
@@ -133,14 +133,14 @@ class Combiner:
         else:
             # perspective
             warped_corners2 = cv2.perspectiveTransform(corners2.reshape(-1, 1, 2), H).reshape(-1, 2)
-        
+
         all_corners = np.vstack([corners1, warped_corners2])
         xMin, yMin = np.int32(all_corners.min(axis=0).ravel() - 0.5)
         xMax, yMax = np.int32(all_corners.max(axis=0).ravel() + 0.5)
         return xMin, yMin, xMax, yMax
-    
+
     def __predict_roi(self, h_rel_prev, image_shape):
-        ''' 
+        '''
         Predict the ROI in the new image based on the previous homography and the image shape.
         This is a simple heuristic that assumes the camera motion is mostly forward and the scene is mostly planar.
         '''
@@ -156,7 +156,7 @@ class Combiner:
         warped_corners = cv2.perspectiveTransform(corners, H_inv)
         x_min, y_min = np.int32(warped_corners.min(axis=0).ravel() - 0.5)
         x_max, y_max = np.int32(warped_corners.max(axis=0).ravel() + 0.5)
-        
+
         # margin of tolerance
         pad_x = int(0.15 * width)
         pad_y = int(0.15* height)
@@ -165,13 +165,13 @@ class Combiner:
         x_end = min(x_max + pad_x, width)
         y_end = min(y_max + pad_y, height)
 
-        # FALLBACK 
+        # FALLBACK
         if (x_end - x_start < 100) or (y_end - y_start < 100):
             x_start, y_start, x_end, y_end = 0, 0, width, height
         return x_start, y_start, x_end, y_end
-    
+
     def _warp_images(self, result_image, image2, A, H, xMin, yMin, xMax, yMax):
-        ''' 
+        '''
         warp both images onto a common canvas and return them
         '''
         canvas_size = (xMax - xMin, yMax - yMin)
@@ -187,9 +187,9 @@ class Combiner:
             warped_image2 = cv2.warpAffine(tmp, A, canvas_size)
         else:
             warped_image2 = cv2.warpPerspective(image2, translation @ H, canvas_size)
-        
+
         return warped_result, warped_image2
-    
+
     def _legacy_blend(self, warped_result, warped_img2):
         """
         Simple binary-mask blend:
@@ -219,12 +219,12 @@ class Combiner:
         if self.dataMatrix[index - 1, 6] == 0 or self.dataMatrix[index, 6] == 0:
             print("⚠️  Warning: Invalid GPS data. Cannot compute fallback transform.")
             return None
-        
+
         # Convert GPS delta to pixel translation using meters per pixel
         if self._meters_per_pixel is None:
             print("⚠️  Warning: Meters per pixel not calibrated. Cannot compute fallback transform.")
             return None
-        
+
         delta_pos_m = curr_pos - prev_pos
         translation_px = delta_pos_m / self._meters_per_pixel
         translation_px[1] = -translation_px[1]  # Invert Y-axis for image coordinates
@@ -308,7 +308,7 @@ class Combiner:
             print(f"⚠️  Warning: Estimated translation {translation_estimated_px} is too far from actual translation {translation_actual_px}.")
             return False
         return True
-    
+
     def __check_attitude_drift(self, index):
         """
         Check if the estimated roll/pitch from the attitude data is within reasonable bounds.
@@ -364,12 +364,12 @@ class Combiner:
             #     kp2.append(kp)
             for kp in kp2_roi:
                 new_kp = cv2.KeyPoint(
-                    x=kp.pt[0] + x_start, 
-                    y=kp.pt[1] + y_start, 
-                    size=kp.size, 
-                    angle=kp.angle, 
-                    response=kp.response, 
-                    octave=kp.octave, 
+                    x=kp.pt[0] + x_start,
+                    y=kp.pt[1] + y_start,
+                    size=kp.size,
+                    angle=kp.angle,
+                    response=kp.response,
+                    octave=kp.octave,
                     class_id=kp.class_id
                 )
                 kp2.append(new_kp)
@@ -395,7 +395,7 @@ class Combiner:
             print(f"⚠️  Warning: Only {len(matches)} matches found for image pair {index-1}-{index}. Need at least 4. Skipping.")
             self.__bridge_or_freeze(index, image2.shape)
             return self.result_image
-        
+
         # --- transformation estimation --- #
         t = time.time()
         A_rel, H_rel, inlier_mask, _, _ = self.__estimate_transform(kp1, kp2, matches)
@@ -479,7 +479,7 @@ class Combiner:
         match_output_path = os.path.join(self.match_output_dir, f"matches_{index-1}_{index}.jpg")
         cv2.imwrite(match_output_path, match_drawing)
         print(f"Match visualization saved: {match_output_path}")
-    
+
     def create_mosaic(self):
         '''
         stitch all image sequentially and return the final mosaic
@@ -493,7 +493,7 @@ class Combiner:
         self.timing_stats['total'] = time.time() - t0
         self._print_timing_summary()
         return self.result_image
-    
+
     def _print_timing_summary(self):
         s = self.timing_stats
         tracked_time = s['preprocessing'] + s['feature_detection'] + s['matching'] + s['transformation'] + s['warping'] + s['blending']
@@ -507,7 +507,7 @@ class Combiner:
             f"Transformation:     {s['transformation']:>8.2f}s",
             f"Warping:            {s['warping']:>8.2f}s",
             f"Blending:           {s['blending']:>8.2f}s",
-            f"I/O & Misc (Save):  {untracked_time:>8.2f}s", 
+            f"I/O & Misc (Save):  {untracked_time:>8.2f}s",
             "-" * 55,
             f"TOTAL:              {s['total']:>8.2f}s",
         ]
