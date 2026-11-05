@@ -61,6 +61,9 @@ class FrameReassembler:
         # {frame_id: {"chunks": {idx: bytes}, "total": int, "first_seen": float}}
         self._buffer: dict = defaultdict(lambda: {"chunks": {}, "total": 0, "first_seen": time.time()})
         self._lock   = threading.Lock()
+        self.total_seen = 0
+        self.total_completed = 0
+        self.total_dropped = 0
 
     def feed(self, packet: bytes):
         """
@@ -76,7 +79,10 @@ class FrameReassembler:
         payload = packet[self.HEADER_SIZE:]
 
         with self._lock:
+            is_new = frame_id not in self._buffer
             entry = self._buffer[frame_id]
+            if is_new:
+                self.total_seen += 1
             entry["total"] = total_chunks
             entry["chunks"][chunk_idx] = payload
             if not entry["first_seen"]:
@@ -88,6 +94,7 @@ class FrameReassembler:
                 assembled = b"".join(
                     entry["chunks"][i] for i in range(total_chunks)
                 )
+                self.total_completed += 1
                 del self._buffer[frame_id]
                 return assembled
 
@@ -104,6 +111,7 @@ class FrameReassembler:
             for fid in stale:
                 log.warning(f"Frame {fid} timeout – dihapus (tidak lengkap)")
                 del self._buffer[fid]
+            self.total_dropped += len(stale)
 
 
 # =============================================================================

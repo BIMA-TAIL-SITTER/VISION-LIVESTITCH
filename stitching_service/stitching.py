@@ -1,0 +1,844 @@
+"""Integrated live image stitching routes for the main Ground Station backend."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import shutil
+
+from pathlib import Path
+import re
+import sys
+import threading
+import time
+from typing import Any, Coroutine, Dict, List
+
+import cv2
+from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket
+from fastapi.responses import FileResponse
+import numpy as np
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+STITCHING_ROOT = REPO_ROOT / "stitching_service"
+SESSIONS_ROOT = Path(
+    os.getenv("STITCH_SESSIONS_DIR", str(STITCHING_ROOT / "sessions"))
+).expanduser().resolve()
+DEFAULT_AUTO_THRESHOLD = max(1, int(os.getenv("STITCH_AUTO_THRESHOLD", "5")))
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+INTERMEDIATE_PATTERN = re.compile(r"^intermediateResult_[0-9]+\.png$")
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+
+# VISION-LIVESTITCH keeps package imports and src-local imports mixed. The
+# integrated backend still loads the same engine, but it now runs inside the
+# main FastAPI process.
+sys.path.insert(0, str(STITCHING_ROOT))
+sys.path.insert(0, str(STITCHING_ROOT / "src"))
+from src import Combiner  # noqa: E402
+# from src import utilities as util  # noqa: E402
+from src.flight_metadata import (
+    extract_flight_metadata,
+    build_data_matrix,
+    GPSDistanceFilter,
+    AttitudeThresholdFilter,
+)
+
+
+cv2.ocl.setUseOpenCL(False)
+
+router = APIRouter(prefix="/ws/stitching", tags=["stitching"])
+api_router = APIRouter(prefix="/api/stitching", tags=["stitching"])
+
+# Injected by app.main during lifespan startup.
+video_manager_instance: Any | None = None
+
+image_receivers_by_uav: dict[int, Any] = {}
+
+
+class StitchConfig(BaseModel):
+    sessionId: str             = Field(min_length=1, max_length=64)
+    auto_stitch_threshold: int = Field(
+        default=DEFAULT_AUTO_THRESHOLD,
+        ge=1,
+        le=10_000,
+    )
+    auto_stitch_enabled: bool       = False
+    folder_monitoring_enabled: bool = False
+    output_name: str = "finalResult.png"
+
+    @field_validator("sessionId")
+    @classmethod
+    def validate_session_id(cls, value: str) -> str:
+        if not SESSION_ID_PATTERN.fullmatch(value):
+            raise ValueError(
+                "sessionId must use 1-64 letters, numbers, underscores, or hyphens"
+            )
+        return value
+
+    @field_validator("output_name")
+    @classmethod
+    def validate_output_name(cls, value: str) -> str:
+        if Path(value).name != value or Path(value).suffix.lower() != ".png":
+            raise ValueError("output_name must be a PNG filename without a path")
+        return value
+
+
+class StreamCaptureRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    stream_port: int = Field(alias="streamPort", ge=1, le=65_535)
+    json_port: int | None = Field(default=None, alias="jsonPort", ge=1, le=65_535)
+    uav_id: int | None = Field(default=None, alias="uavId", ge=1, le=4)
+    jpeg_quality: int = Field(default=95, alias="jpegQuality", ge=1, le=100)
+
+class AttachImageSourceRequest(BaseModel):
+    session_id: str
+
+class StitchingSession:
+    def __init__(self, session_id: str, config: StitchConfig):
+        self.session_id = session_id
+        self.config = config
+        self.image_folder                   = SESSIONS_ROOT / session_id / "images"
+        self.output_folder                  = SESSIONS_ROOT / session_id / "output"
+        self.image_folder.mkdir(parents=True, exist_ok=True)
+        self.output_folder.mkdir(parents=True, exist_ok=True)
+
+        self.image_count                    = self.count_images()
+        self.is_stitching                   = False
+        self.ws_clients: set[WebSocket]     = set()
+        self.last_stitch_count              = 0
+        self.observer: Observer | None      = None
+        self._state_lock                    = threading.Lock()
+
+        # GPS correction param
+        self.gps_filter = GPSDistanceFilter(threshold_m = 2.0)
+        self.attitude_filter                = AttitudeThresholdFilter()
+
+        # image admission tracking
+        self.accepted_images:   list[Path]  = []
+        self.accepted_metadata: list[dict]  = []
+        self._admitted_paths:   set[Path]   = set()
+
+    def count_images(self) -> int:
+        return sum(
+            1
+            for path in self.image_folder.iterdir()
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        )
+
+    def refresh_image_count(self) -> int:
+        self.image_count = self.count_images()
+        return self.image_count
+
+    def claim_stitch(self) -> bool:
+        with self._state_lock:
+            if self.is_stitching:
+                return False
+            self.refresh_image_count()
+            self.is_stitching = True
+            self.last_stitch_count = len(self.accepted_images)
+            return True
+
+    def finish_stitch(self) -> None:
+        with self._state_lock:
+            self.is_stitching = False
+
+    # clear the session's images and output folders, and reset state
+    def clear(self) -> None:
+        with self._state_lock:
+            if self.is_stitching:
+                raise RuntimeError("Cannot clear session while stitching is in progress")
+            shutil.rmtree(self.image_folder, ignore_errors=True)
+            shutil.rmtree(self.output_folder, ignore_errors=True)
+            self.image_folder.mkdir(parents=True, exist_ok=True)
+            self.output_folder.mkdir(parents=True, exist_ok=True)
+            self.image_count = 0
+            self.last_stitch_count = 0
+            self.accepted_images.clear()
+            self.accepted_metadata.clear()
+            self._admitted_paths.clear()
+            self.gps_filter = GPSDistanceFilter(threshold_m = self.gps_filter.threshold_m)
+            self.attitude_filter = AttitudeThresholdFilter(threshold_deg = self.attitude_filter.threshold_deg)
+
+
+sessions: Dict[str, StitchingSession] = {}
+stitch_semaphore = asyncio.Semaphore(max(1, os.cpu_count() - 2))
+observers: Dict[str, Observer] = {}
+stitch_tasks: set[asyncio.Task[None]] = set()
+service_loop: asyncio.AbstractEventLoop | None = None
+
+
+def schedule_from_thread(coroutine: Coroutine[object, object, object]) -> None:
+    """Schedule WebSocket and stitching work on FastAPI's owning event loop."""
+    if service_loop is None or not service_loop.is_running():
+        coroutine.close()
+        return
+    asyncio.run_coroutine_threadsafe(coroutine, service_loop)
+
+def admit_file(session: StitchingSession, file_path: Path) -> tuple[bool, str]:
+    """
+    Extract EXIF pose, run admission filters, and append to the
+    session's stitch-eligible list on acceptance. The single choke point
+    every ingestion route (upload, watchdog, capture-stream, image
+    receiver) must call — do not reimplement this inline anywhere else.
+    """
+    meta = extract_flight_metadata(str(file_path))
+    with session._state_lock:
+        if file_path in session._admitted_paths:
+            return False, "already admitted (duplicate ingestion path)"
+        if meta["has_telemetry"]:
+            att_ok, worst_angle = session.attitude_filter.should_accept(meta["roll"], meta["pitch"])
+            if not att_ok:
+                return False, f"attitude {worst_angle:.1f}° exceeds threshold"
+
+            gps_ok, dist = session.gps_filter.should_accept(meta["latitude"], meta["longitude"])
+            if not gps_ok:
+                return False, f"too close, {dist:.1f}m from last accepted"
+
+        session._admitted_paths.add(file_path)
+        session.accepted_images.append(file_path)
+        session.accepted_metadata.append(meta)
+    return True, "accepted"
+
+async def notify_clients(session: StitchingSession, payload: dict) -> None:
+    disconnected: list[WebSocket] = []
+    for websocket in tuple(session.ws_clients):
+        try:
+            await websocket.send_json(payload)
+        except Exception:
+            disconnected.append(websocket)
+    for websocket in disconnected:
+        session.ws_clients.discard(websocket)
+
+
+async def record_new_images(
+    session: StitchingSession,
+    # file_names: list[str],
+    results: list[dict],
+) -> None:
+    session.refresh_image_count()
+    if not session.config.folder_monitoring_enabled:
+        for entry in results:
+            await notify_clients(
+                session,
+                {
+                    "type": "file_detected" if entry["accepted"] else "file_rejected",
+                    "file": entry["file"],
+                    "reason": entry["reason"],
+                    "total_images": session.image_count,
+                    "accepted_count": len(session.accepted_images)
+                },
+            )
+
+    images_since_last_stitch = len(session.accepted_images) - session.last_stitch_count
+    if (
+        session.config.auto_stitch_enabled
+        and images_since_last_stitch >= session.config.auto_stitch_threshold
+        and session.claim_stitch()
+    ):
+        launch_stitch(session.session_id, claimed=True)
+
+
+class SessionFolderHandler(FileSystemEventHandler):
+    def __init__(
+        self,
+        session_id: str,
+        debounce_s: float = 1.0,
+        stable_wait: float = 0.5,
+        stable_tries: int = 6,
+    ):
+        self.session_id = session_id
+        self.debounce_s = debounce_s
+        self.stable_wait = stable_wait
+        self.stable_tries = stable_tries
+        self.last_called: dict[str, float] = {}
+
+    def _should_call(self, path: str) -> bool:
+        now = time.time()
+        last = self.last_called.get(path, 0)
+        if now - last < self.debounce_s:
+            return False
+        self.last_called[path] = now
+        return True
+
+    def _wait_until_stable(self, path: str) -> bool:
+        previous_size = -1
+        for _ in range(self.stable_tries):
+            if not os.path.exists(path):
+                return False
+            size = os.path.getsize(path)
+            if size == previous_size and size > 0:
+                return True
+            previous_size = size
+            time.sleep(self.stable_wait)
+        return False
+
+    def on_created(self, event) -> None:  # type: ignore[no-untyped-def]
+        if event.is_directory:
+            return
+        file_path = str(event.src_path)
+        if Path(file_path).suffix.lower() not in IMAGE_SUFFIXES:
+            return
+        if not self._should_call(file_path) or not self._wait_until_stable(file_path):
+            return
+
+        session = sessions.get(self.session_id)
+        if session is None:
+            return
+
+        session.refresh_image_count()
+        accepted, reason = admit_file(session, Path(file_path))
+        schedule_from_thread(
+            notify_clients(
+                session,
+                {
+                    "type": "file_detected" if accepted else "file_rejected",
+                    "file": Path(file_path).name,
+                    "reason": reason,
+                    "total_images": session.image_count,
+                    "accepted_count": len(session.accepted_images)
+                },
+            )
+        )
+
+        images_since_last_stitch = len(session.accepted_images) - session.last_stitch_count
+        if (
+            session.config.auto_stitch_enabled
+            and images_since_last_stitch >= session.config.auto_stitch_threshold
+            and session.claim_stitch()
+        ):
+            schedule_from_thread(run_stitching(session.session_id, claimed=True))
+
+
+def start_folder_monitoring(session_id: str) -> bool:
+    session = sessions.get(session_id)
+    if session is None:
+        return False
+    stop_folder_monitoring(session_id)
+
+    observer = Observer()
+    observer.schedule(
+        SessionFolderHandler(session_id),
+        str(session.image_folder),
+        recursive=False,
+    )
+    observer.start()
+    observers[session_id] = observer
+    session.observer = observer
+    return True
+
+
+def stop_folder_monitoring(session_id: str) -> bool:
+    observer = observers.pop(session_id, None)
+    if observer is None:
+        return False
+    observer.stop()
+    observer.join()
+    session = sessions.get(session_id)
+    if session is not None:
+        session.observer = None
+    return True
+
+
+def discover_existing_sessions() -> int:
+    """Discover receiver-created sessions without replacing active state."""
+    SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
+    discovered = 0
+    for session_dir in SESSIONS_ROOT.iterdir():
+        if not session_dir.is_dir() or not SESSION_ID_PATTERN.fullmatch(session_dir.name):
+            continue
+        if not (session_dir / "images").exists():
+            continue
+        existing = sessions.get(session_dir.name)
+        if existing is not None:
+            existing.refresh_image_count()
+            continue
+        config = StitchConfig(sessionId=session_dir.name)
+        sessions[session_dir.name] = StitchingSession(session_dir.name, config)
+        discovered += 1
+    return discovered
+
+
+def require_session(session_id: str) -> StitchingSession:
+    if not SESSION_ID_PATTERN.fullmatch(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    session = sessions.get(session_id)
+    if session is None:
+        discover_existing_sessions()
+        session = sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+def ensure_uav_session(session_id: str, *, auto_stitch_threshold:int, auto_stitch_enabled:bool,
+                       folder_monitoring_enabled:bool, output_name:str) -> StitchingSession:
+    if session_id in sessions:
+        return sessions[session_id]
+    config = StitchConfig(
+        sessionId=session_id,
+        auto_stitch_threshold=auto_stitch_threshold,
+        auto_stitch_enabled=auto_stitch_enabled,
+        folder_monitoring_enabled=folder_monitoring_enabled,
+        output_name=output_name
+        )
+    session = StitchingSession(session_id, config)
+    sessions[session_id] = session
+    if folder_monitoring_enabled:
+        start_folder_monitoring(session_id)
+    return session
+
+async def handle_received_image(session_id: str, file_path: Path) -> None:
+    """
+    Callback target for UavImageReceiver — same admission + auto-stitch
+    trigger path as every other ingestion route
+    """
+    session = sessions.get(session_id)
+    if session is None:
+        return
+    accepted, reason = admit_file(session, file_path)
+    await notify_clients(
+        session,
+        {
+            "type": "file_detected" if accepted else "file_rejected",
+            "file": file_path.name,
+            "reason": reason,
+            "total_images": session.refresh_image_count(),
+            "accepted_count": len(session.accepted_images)
+        })
+    images_since_last_stitch = len(session.accepted_images) - session.last_stitch_count
+    if (
+        session.config.auto_stitch_enabled
+        and images_since_last_stitch >= session.config.auto_stitch_threshold
+        and session.claim_stitch()
+    ):
+        launch_stitch(session_id, claimed=True)
+
+def create_mosaic(session: StitchingSession) -> Path:
+    images_to_stitch = list(session.accepted_images)
+    metadata_to_stitch = list(session.accepted_metadata)
+    images: list[np.ndarray] = []
+    valid_metadata: list[dict] = []
+    for path, meta in zip(images_to_stitch, metadata_to_stitch):
+        img = cv2.imread(str(path))
+        if img is not None:
+            images.append(img)
+            valid_metadata.append(meta)
+    if len(images) < 2:
+        raise RuntimeError("Not enough valid images to stitch")
+    data_matrix = build_data_matrix(valid_metadata)
+
+    combiner = Combiner.Combiner(
+        images,
+        data_matrix,
+        str(session.output_folder),
+    )
+    result = combiner.create_mosaic()
+    if result is None:
+        raise RuntimeError("Stitching failed")
+
+    output_path = session.output_folder / session.config.output_name
+    if not cv2.imwrite(str(output_path), result):
+        raise RuntimeError("Unable to write stitched result")
+    return output_path
+
+
+async def run_stitching(session_id: str, claimed: bool = False) -> None:
+    session = sessions.get(session_id)
+    if session is None or (not claimed and not session.claim_stitch()):
+        return
+
+    await notify_clients(
+        session,
+        {"type": "stitching_started", "image_count": session.image_count},
+    )
+
+    success = False
+    error_message: str | None = None
+
+    try:
+        async with stitch_semaphore:
+            start_time = time.monotonic()
+            await asyncio.to_thread(create_mosaic, session)
+        success = True
+    except Exception as error:
+        error_message = str(error)
+        print(f"[STITCH] Session {session_id} failed: {error}", flush=True)
+    finally:
+        elapsed_time = time.monotonic() - start_time
+        session.finish_stitch()
+
+    await notify_clients(
+        session,
+        {
+            "type": "stitching_completed",
+            "success": success,
+            "elapsed_time": elapsed_time,
+            "error_message": error_message,
+            "output_file": (
+                f"/api/stitching/session/{session_id}/result"
+                if success
+                else None
+            ),
+        },
+    )
+
+
+def launch_stitch(session_id: str, claimed: bool = False) -> None:
+    task = asyncio.create_task(run_stitching(session_id, claimed=claimed))
+    stitch_tasks.add(task)
+    task.add_done_callback(stitch_tasks.discard)
+
+
+async def startup() -> None:
+    global service_loop
+    service_loop = asyncio.get_running_loop()
+    discover_existing_sessions()
+    print(f"[STARTUP] Stitch sessions: {SESSIONS_ROOT}", flush=True)
+
+
+async def shutdown() -> None:
+    global service_loop
+    for session_id in list(observers):
+        stop_folder_monitoring(session_id)
+    for task in tuple(stitch_tasks):
+        task.cancel()
+    if stitch_tasks:
+        await asyncio.gather(*stitch_tasks, return_exceptions=True)
+    service_loop = None
+
+
+@api_router.get("/")
+async def root():
+    return {
+        "service": "BIMA Integrated Orthomosaic Stitcher",
+        "version": "1.0",
+        "active_sessions": len(sessions),
+        "monitoring": len(observers),
+        "image_source": "base_station_stream_port",
+    }
+
+
+@api_router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@api_router.get("/sessions")
+async def list_sessions():
+    discover_existing_sessions()
+    return {
+        "sessions": [
+            {
+                "session_id": session.session_id,
+                "image_count": session.refresh_image_count(),
+                "accepted_count": len(session.accepted_images),
+                "is_stitching": session.is_stitching,
+                "monitoring": session.config.folder_monitoring_enabled,
+                "auto_stitch": session.config.auto_stitch_enabled,
+            }
+            for session in sorted(sessions.values(), key=lambda item: item.session_id)
+        ]
+    }
+
+
+@api_router.post("/session/create")
+async def create_session(config: StitchConfig):
+    if config.sessionId in sessions:
+        session = sessions[config.sessionId]
+        session.refresh_image_count()
+        return {
+            "status": "Session already exists",
+            "session_id": config.sessionId,
+            "image_count": session.image_count,
+            "folder_monitoring": session.config.folder_monitoring_enabled,
+        }
+
+    session = StitchingSession(config.sessionId, config)
+    sessions[config.sessionId] = session
+    if config.folder_monitoring_enabled:
+        start_folder_monitoring(config.sessionId)
+    return {
+        "status": "Session created",
+        "session_id": config.sessionId,
+        "image_count": session.image_count,
+        "folder_monitoring": config.folder_monitoring_enabled,
+    }
+
+
+@api_router.post("/session/{session_id}/toggle-monitoring")
+async def toggle_monitoring(session_id: str, enable: bool):
+    session = require_session(session_id)
+    session.config.folder_monitoring_enabled = enable
+    if enable:
+        start_folder_monitoring(session_id)
+    else:
+        stop_folder_monitoring(session_id)
+    return {"status": "Monitoring enabled" if enable else "Monitoring disabled"}
+
+
+@api_router.post("/session/{session_id}/toggle-auto-stitch")
+async def toggle_auto_stitch(session_id: str, enable: bool):
+    session = require_session(session_id)
+    session.config.auto_stitch_enabled = enable
+    return {
+        "status": "Auto-stitch enabled" if enable else "Auto-stitch disabled",
+        "threshold": session.config.auto_stitch_threshold,
+    }
+
+@api_router.post("/session/{session_id}/clear")
+async def clear_session(session_id: str):
+    session = require_session(session_id)
+    try:
+        session.clear()
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+    attached_uav_id = next(
+        (uav_id for uav_id, r in image_receivers_by_uav.items()
+         if r.current_session_id == session_id),
+         None
+    )
+    if attached_uav_id is not None:
+        receiver = image_receivers_by_uav[attached_uav_id]
+        receiver.img_count = 0
+        receiver.total_bytes = 0
+
+    return {"session_id": session_id, "status": "Session cleared", "image_count": session.image_count}
+
+
+@api_router.post("/session/{session_id}/upload")
+async def upload_images(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+):
+    session = require_session(session_id)
+    uploaded_names: list[str] = []
+    results: list[dict] = []
+
+    for upload in files:
+        file_name = Path(upload.filename or "").name
+        if not file_name or Path(file_name).suffix.lower() not in IMAGE_SUFFIXES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported image file: {file_name or 'unnamed file'}",
+            )
+        target = session.image_folder / file_name
+        with target.open("wb") as output:
+            while chunk := await upload.read(1024 * 1024):
+                output.write(chunk)
+        await upload.close()
+        uploaded_names.append(file_name)
+        accepted, reason = admit_file(session, target)
+        results.append({"file": file_name, "accepted": accepted, "reason": reason})
+
+    await record_new_images(session, results)
+    return {
+        "uploaded": len(uploaded_names),
+        "total": session.image_count,
+        "session_id": session_id,
+    }
+
+
+def write_stream_frame(
+    session: StitchingSession,
+    frame: np.ndarray,
+    request: StreamCaptureRequest,
+) -> str:
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    milliseconds = int((time.time() % 1) * 1000)
+    unique_id = time.time_ns() % 1_000_000_000
+    source_name = f"uav{request.uav_id}" if request.uav_id else "stream"
+    file_name = (
+        f"{timestamp}_{milliseconds:03d}_{unique_id:09d}_{source_name}_"
+        f"{request.stream_port}.jpg"
+    )
+    target = session.image_folder / file_name
+    ok = cv2.imwrite(
+        str(target),
+        frame,
+        [cv2.IMWRITE_JPEG_QUALITY, request.jpeg_quality],
+    )
+    if not ok:
+        raise RuntimeError("Unable to write stream frame")
+    return file_name
+
+
+async def wait_for_stream_frame(stream_port: int, timeout_s: float = 2.0) -> np.ndarray | None:
+    if video_manager_instance is None:
+        return None
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        frame = video_manager_instance.get_latest_frame(stream_port)
+        if frame is not None:
+            return frame
+        await asyncio.sleep(0.05)
+    return None
+
+
+@api_router.post("/session/{session_id}/capture-stream")
+async def capture_stream_frame(
+    session_id: str,
+    request: StreamCaptureRequest,
+):
+    if video_manager_instance is None:
+        raise HTTPException(status_code=503, detail="Video manager is not initialised")
+
+    session = require_session(session_id)
+    video_manager_instance.ensure_stream(request.stream_port, request.json_port)
+    frame = await wait_for_stream_frame(request.stream_port)
+    if frame is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No frame has been received on stream port "
+                f"{request.stream_port} yet"
+            ),
+        )
+
+    try:
+        file_name = await asyncio.to_thread(write_stream_frame, session, frame, request)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+    accepted, reason = admit_file(session, session.image_folder / file_name)
+    await record_new_images(
+        session, [{"file": file_name, "accepted": accepted, "reason": reason}]
+    )
+
+    return {
+        "captured": 1,
+        "file": file_name,
+        "accepted": accepted,
+        "reason": reason,
+        "total": session.image_count,
+        "session_id": session_id,
+        "stream_port": request.stream_port,
+        "json_port": request.json_port,
+        "uav_id": request.uav_id,
+    }
+
+
+@api_router.post("/session/{session_id}/stitch")
+async def trigger_stitch(session_id: str):
+    session = require_session(session_id)
+    if not session.claim_stitch():
+        return {"status": "Stitching already in progress"}
+    launch_stitch(session_id, claimed=True)
+    return {"status": "Stitching started", "image_count": session.image_count}
+
+
+@api_router.get("/session/{session_id}/result")
+async def get_result_image(session_id: str):
+    session = require_session(session_id)
+    output_file = session.output_folder / session.config.output_name
+    if not output_file.exists():
+        intermediates = list(session.output_folder.glob("intermediateResult_*.png"))
+        if not intermediates:
+            raise HTTPException(status_code=404, detail="No result image found")
+        output_file = max(intermediates, key=lambda path: path.stat().st_mtime)
+    return FileResponse(output_file, headers={"Cache-Control": "no-store"})
+
+
+@api_router.get("/session/{session_id}/intermediates")
+async def list_intermediate_results(session_id: str):
+    session = require_session(session_id)
+    intermediates = sorted(
+        session.output_folder.glob("intermediateResult_*.png"),
+        key=lambda path: path.stat().st_mtime,
+    )
+    return {
+        "session_id": session_id,
+        "count": len(intermediates),
+        "files": [path.name for path in intermediates],
+    }
+
+
+@api_router.get("/session/{session_id}/intermediates/{file_name}")
+async def get_intermediate_result(session_id: str, file_name: str):
+    session = require_session(session_id)
+    if not INTERMEDIATE_PATTERN.fullmatch(file_name):
+        raise HTTPException(status_code=404, detail="Intermediate image not found")
+    output_file = session.output_folder / file_name
+    if not output_file.is_file():
+        raise HTTPException(status_code=404, detail="Intermediate image not found")
+    return FileResponse(output_file, headers={"Cache-Control": "no-store"})
+
+@api_router.post("/image-receiver/{uav_id}/attach")
+async def attach_image_source(uav_id: int, request: AttachImageSourceRequest):
+    receiver = image_receivers_by_uav.get(uav_id)
+    if receiver is None:
+        raise HTTPException(status_code=404, detail=f"No image receiver for UAV {uav_id}")
+    target_session = sessions.get(request.session_id)
+    if target_session is None:
+        raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+    current_session = sessions.get(receiver.current_session_id)
+    if current_session is not None and current_session.is_stitching:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot switch sessions while stitching is in progress for session {current_session.session_id}"
+        )
+    previous_session_id = receiver.current_session_id
+    receiver.attach(request.session_id, target_session.image_folder)
+    return {
+        "uav_id": uav_id,
+        "previous_session_id": previous_session_id,
+        "attached_session_id": request.session_id,
+    }
+@api_router.post("/image-receiver/{uav_id}/toggle-capture")
+async def toggle_capture(uav_id: int, enable: bool):
+    receiver = image_receivers_by_uav.get(uav_id)
+    if receiver is None:
+        raise HTTPException(status_code=404, detail=f"No image receiver for UAV {uav_id}")
+    receiver.set_capture_enabled(enable)
+    return {
+        "uav_id": uav_id,
+        "capture_enabled": enable,
+    }
+
+@api_router.get("/session/{session_id}/status")
+async def get_session_status(session_id: str):
+    session = require_session(session_id)
+    session.refresh_image_count()
+    attached_uav_id = next(
+        (uav_id for uav_id, r in image_receivers_by_uav.items()
+         if r.current_session_id == session_id),
+        None
+    )
+    attached_receiver = image_receivers_by_uav.get(attached_uav_id) if attached_uav_id is not None else None
+    return {
+        "session_id": session_id,
+        "image_count": session.image_count,
+        "accepted_count": len(session.accepted_images),
+        "is_stitching": session.is_stitching,
+        "auto_stitch_enabled": session.config.auto_stitch_enabled,
+        "auto_stitch_threshold": session.config.auto_stitch_threshold,
+        "folder_monitoring_enabled": session.config.folder_monitoring_enabled,
+        "last_stitch_count": session.last_stitch_count,
+        "images_since_last_stitch": len(session.accepted_images) - session.last_stitch_count,
+        "attached_uav_id": attached_uav_id,
+        "capture_enabled": attached_receiver.capture_enabled if attached_receiver else None,
+    }
+
+
+@router.websocket("/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+    try:
+        session = require_session(session_id)
+    except HTTPException:
+        await websocket.send_json({"error": "Session not found"})
+        await websocket.close(code=1008)
+        return
+
+    session.ws_clients.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except Exception:
+        pass
+    finally:
+        session.ws_clients.discard(websocket)

@@ -109,7 +109,7 @@ def build_data_matrix(metadata_list: List[Dict], origin: Optional[Tuple[float, f
     else:
         origin_lat, origin_lon = origin
 
-    data_matrix = np.zeros((len(metadata_list), 6), dtype=np.float64)
+    data_matrix = np.zeros((len(metadata_list), 7), dtype=np.float64)
     for i, meta in enumerate(metadata_list):
         lat = meta["latitude"]
         lon = meta["longitude"]
@@ -121,6 +121,7 @@ def build_data_matrix(metadata_list: List[Dict], origin: Optional[Tuple[float, f
         data_matrix[i, 3] = meta["yaw"]
         data_matrix[i, 4] = meta["pitch"]
         data_matrix[i, 5] = meta["roll"]
+        data_matrix[i, 6] = 1.0  if meta["has_telemetry"] else 0.0
     return data_matrix
 
 

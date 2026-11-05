@@ -216,7 +216,7 @@ class Combiner:
         # Get the previous and current GPS positions
         prev_pos = self.dataMatrix[index - 1, 0:2]
         curr_pos = self.dataMatrix[index, 0:2]
-        if np.all(prev_pos == 0) or np.all(curr_pos == 0):
+        if self.dataMatrix[index - 1, 6] == 0 or self.dataMatrix[index, 6] == 0:
             print("⚠️  Warning: Invalid GPS data. Cannot compute fallback transform.")
             return None
         

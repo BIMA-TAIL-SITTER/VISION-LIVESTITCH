@@ -96,14 +96,14 @@ class TestBuildDataMatrix(unittest.TestCase):
     def test_first_entry_is_origin_with_correct_attitude_columns(self):
         metadata = [
             {"latitude": -7.250445, "longitude": 112.768845, "altitude": 80.0,
-             "yaw": 90.0, "pitch": 2.0, "roll": -1.0},
+             "yaw": 90.0, "pitch": 2.0, "roll": -1.0, "has_telemetry": True},
             {"latitude": -7.250400, "longitude": 112.768900, "altitude": 80.0,
-             "yaw": 90.0, "pitch": 1.5, "roll": 0.5},
+             "yaw": 90.0, "pitch": 1.5, "roll": 0.5, "has_telemetry": True},
         ]
 
         matrix = build_data_matrix(metadata)
 
-        self.assertEqual(matrix.shape, (2, 6))
+        self.assertEqual(matrix.shape, (2, 7))
         # First entry is the origin -> local X/Y must be 0,0
         self.assertAlmostEqual(matrix[0, 0], 0.0, places=6)
         self.assertAlmostEqual(matrix[0, 1], 0.0, places=6)
